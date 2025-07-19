@@ -70,7 +70,7 @@ from skyvern.webeye.utils.page import SkyvernFrame
 LOG = structlog.get_logger()
 DEFAULT_WORKFLOW_TITLE = "New Workflow"
 RANDOM_STRING_POOL = string.ascii_letters + string.digits
-DEFAULT_MAX_ITERATIONS = 13
+MAX_ITERATIONS_PER_TASK_V2 = settings.MAX_ITERATIONS_PER_TASK_V2 or 13
 
 MINI_GOAL_TEMPLATE = """Achieve the following mini goal and once it's achieved, complete:
 ```{mini_goal}```
@@ -490,7 +490,7 @@ async def run_task_v2_helper(
     browser_state: BrowserState | None = None
 
     max_steps = int_max_steps_override or settings.MAX_STEPS_PER_TASK_V2
-    for i in range(DEFAULT_MAX_ITERATIONS):
+    for i in range(MAX_ITERATIONS_PER_TASK_V2):
         # validate the task execution
         await app.AGENT_FUNCTION.validate_task_execution(
             organization_id=organization_id,
@@ -909,7 +909,7 @@ async def run_task_v2_helper(
     else:
         LOG.info(
             "Task v2 failed - run out of iterations",
-            max_iterations=DEFAULT_MAX_ITERATIONS,
+            max_iterations=MAX_ITERATIONS_PER_TASK_V2,
             max_steps=max_steps,
             workflow_run_id=workflow_run_id,
         )
