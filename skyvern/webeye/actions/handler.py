@@ -469,12 +469,304 @@ async def handle_solve_captcha_action(
     task: Task,
     step: Step,
 ) -> list[ActionResult]:
-    LOG.warning(
-        "Please solve the captcha on the page, you have 30 seconds",
-        action=action,
-    )
-    await asyncio.sleep(30)
-    return [ActionSuccess()]
+    """
+    Enhanced captcha solving with multiple strategies:
+    1. Automated vision-based solving for text/math captchas
+    2. reCAPTCHA audio alternative handling
+    3. Fallback to manual intervention if needed
+    """
+    LOG.info("Starting advanced captcha solving process", action=action)
+    
+    try:
+        # Strategy 1: Look for image-based captchas
+        captcha_images = await page.query_selector_all("img[src*='captcha'], img[alt*='captcha'], img[alt*='CAPTCHA']")
+        if captcha_images:
+            LOG.info(f"Found {len(captcha_images)} potential captcha images")
+            for img in captcha_images:
+                try:
+                    # Take screenshot of captcha
+                    img_path = f"/tmp/captcha_{uuid.uuid4()}.png"
+                    await img.screenshot(path=img_path)
+                    
+                    # Try to solve using vision LLM
+                    solution = await _solve_image_captcha_with_vision(img_path)
+                    if solution:
+                        # Find input field and enter solution
+                        captcha_input = await _find_captcha_input_field(page)
+                        if captcha_input:
+                            await captcha_input.fill(solution)
+                            LOG.info("Successfully solved image captcha", solution=solution[:4] + "...")
+                            return [ActionSuccess()]
+                        
+                except Exception as e:
+                    LOG.warning("Failed to solve image captcha", error=str(e))
+                    continue
+        
+        # Strategy 2: Handle reCAPTCHA
+        recaptcha_frame = await page.query_selector("iframe[src*='recaptcha']")
+        if recaptcha_frame:
+            LOG.info("Found reCAPTCHA, attempting to solve")
+            success = await _handle_recaptcha(page, recaptcha_frame)
+            if success:
+                return [ActionSuccess()]
+        
+        # Strategy 3: Look for audio captcha alternative
+        audio_links = await page.query_selector_all("a[href*='audio'], button[title*='audio'], *[aria-label*='audio']")
+        if audio_links:
+            LOG.info("Found audio captcha option, attempting to solve")
+            for audio_link in audio_links:
+                try:
+                    await audio_link.click()
+                    await asyncio.sleep(2)  # Wait for audio to load
+                    
+                    # Look for audio element or download link
+                    audio_element = await page.query_selector("audio, a[href*='.wav'], a[href*='.mp3']")
+                    if audio_element:
+                        audio_url = await audio_element.get_attribute("src") or await audio_element.get_attribute("href")
+                        if audio_url:
+                            solution = await _solve_audio_captcha(audio_url)
+                            if solution:
+                                captcha_input = await _find_captcha_input_field(page)
+                                if captcha_input:
+                                    await captcha_input.fill(solution)
+                                    LOG.info("Successfully solved audio captcha")
+                                    return [ActionSuccess()]
+                except Exception as e:
+                    LOG.warning("Failed to solve audio captcha", error=str(e))
+                    continue
+        
+        # Strategy 4: Look for math captchas
+        math_elements = await page.query_selector_all("*[class*='math'], *[id*='math'], img[alt*='math']")
+        if math_elements:
+            LOG.info("Found potential math captcha")
+            for element in math_elements:
+                try:
+                    # Get text content or screenshot
+                    text_content = await element.text_content()
+                    if text_content and any(op in text_content for op in ['+', '-', '*', '/', '=']):
+                        solution = await _solve_math_captcha(text_content)
+                        if solution:
+                            captcha_input = await _find_captcha_input_field(page)
+                            if captcha_input:
+                                await captcha_input.fill(str(solution))
+                                LOG.info("Successfully solved math captcha", solution=solution)
+                                return [ActionSuccess()]
+                except Exception as e:
+                    LOG.warning("Failed to solve math captcha", error=str(e))
+                    continue
+        
+        # Strategy 5: Generic captcha detection and solving
+        potential_captcha_elements = await page.query_selector_all(
+            "*[class*='captcha'], *[id*='captcha'], *[name*='captcha'], "
+            "*[class*='verification'], *[id*='verification']"
+        )
+        
+        if potential_captcha_elements:
+            LOG.info(f"Found {len(potential_captcha_elements)} potential captcha elements")
+            for element in potential_captcha_elements:
+                try:
+                    # Take screenshot and attempt to solve
+                    element_path = f"/tmp/element_captcha_{uuid.uuid4()}.png"
+                    await element.screenshot(path=element_path)
+                    
+                    solution = await _solve_generic_captcha(element_path)
+                    if solution:
+                        captcha_input = await _find_captcha_input_field(page)
+                        if captcha_input:
+                            await captcha_input.fill(solution)
+                            LOG.info("Successfully solved generic captcha")
+                            return [ActionSuccess()]
+                except Exception as e:
+                    LOG.warning("Failed to solve generic captcha", error=str(e))
+                    continue
+        
+        # Fallback: Manual intervention with extended time
+        LOG.warning(
+            "Could not automatically solve captcha, providing extended time for manual intervention",
+            action=action,
+        )
+        
+        # Take full page screenshot for debugging
+        screenshot_path = f"/tmp/captcha_page_{uuid.uuid4()}.png"
+        await page.screenshot(path=screenshot_path, full_page=True)
+        LOG.info("Saved captcha page screenshot", path=screenshot_path)
+        
+        # Extended wait time for manual solving
+        await asyncio.sleep(60)  # Increased to 60 seconds
+        return [ActionSuccess()]
+        
+    except Exception as e:
+        LOG.exception("Error in captcha solving process", error=str(e))
+        return [ActionFailure(exception=e)]
+
+
+async def _solve_image_captcha_with_vision(image_path: str) -> str | None:
+    """Solve image captcha using vision LLM"""
+    try:
+        # Import the captcha solver from worker
+        import sys
+        import os
+        worker_path = os.path.join(os.path.dirname(__file__), "../../../worker")
+        if worker_path not in sys.path:
+            sys.path.append(worker_path)
+        
+        from free_captcha_solver import solve_captcha_advanced
+        
+        result = solve_captcha_advanced("image", image_path=image_path)
+        return result.get("solution") if result.get("solved") else None
+    except Exception as e:
+        LOG.warning("Vision captcha solving failed", error=str(e))
+        return None
+
+
+async def _solve_audio_captcha(audio_url: str) -> str | None:
+    """Solve audio captcha using speech recognition"""
+    try:
+        from free_captcha_solver import solve_captcha_advanced
+        
+        result = solve_captcha_advanced("audio", audio_url=audio_url)
+        return result.get("solution") if result.get("solved") else None
+    except Exception as e:
+        LOG.warning("Audio captcha solving failed", error=str(e))
+        return None
+
+
+async def _solve_math_captcha(math_text: str) -> int | None:
+    """Solve simple math captcha"""
+    try:
+        # Simple math evaluation for basic expressions
+        import re
+        
+        # Extract numbers and operators
+        math_expr = re.sub(r'[^0-9+\-*/\s]', '', math_text)
+        math_expr = math_expr.strip()
+        
+        if math_expr:
+            # Safe evaluation of simple math expressions
+            try:
+                result = eval(math_expr)
+                if isinstance(result, (int, float)):
+                    return int(result)
+            except:
+                pass
+        
+        return None
+    except Exception as e:
+        LOG.warning("Math captcha solving failed", error=str(e))
+        return None
+
+
+async def _solve_generic_captcha(image_path: str) -> str | None:
+    """Solve generic captcha using multiple techniques"""
+    try:
+        from free_captcha_solver import solve_captcha_advanced
+        
+        # Try text recognition first
+        result = solve_captcha_advanced("image", image_path=image_path)
+        if result.get("solved"):
+            return result.get("solution")
+        
+        # Try math recognition
+        result = solve_captcha_advanced("math", image_path=image_path)
+        if result.get("solved"):
+            return result.get("solution")
+        
+        return None
+    except Exception as e:
+        LOG.warning("Generic captcha solving failed", error=str(e))
+        return None
+
+
+async def _handle_recaptcha(page: Page, recaptcha_frame) -> bool:
+    """Handle reCAPTCHA specifically"""
+    try:
+        # Try clicking the "I'm not a robot" checkbox
+        checkbox = await page.query_selector(".recaptcha-checkbox-border")
+        if checkbox:
+            await checkbox.click()
+            await asyncio.sleep(3)
+            
+            # Check if solved
+            checked = await page.query_selector(".recaptcha-checkbox-checked")
+            if checked:
+                LOG.info("reCAPTCHA solved by checkbox click")
+                return True
+        
+        # If challenge appears, try audio alternative
+        audio_button = await page.query_selector("#recaptcha-audio-button")
+        if audio_button:
+            await audio_button.click()
+            await asyncio.sleep(2)
+            
+            # Handle audio challenge
+            return await _handle_recaptcha_audio_challenge(page)
+        
+        return False
+    except Exception as e:
+        LOG.warning("reCAPTCHA handling failed", error=str(e))
+        return False
+
+
+async def _handle_recaptcha_audio_challenge(page: Page) -> bool:
+    """Handle reCAPTCHA audio challenge"""
+    try:
+        # Wait for audio to load
+        await page.wait_for_selector(".rc-audiochallenge-tdownload-link", timeout=10000)
+        
+        # Get audio URL
+        audio_link = await page.query_selector(".rc-audiochallenge-tdownload-link")
+        if audio_link:
+            audio_url = await audio_link.get_attribute("href")
+            if audio_url:
+                solution = await _solve_audio_captcha(audio_url)
+                if solution:
+                    # Enter solution
+                    audio_input = await page.query_selector("#audio-response")
+                    if audio_input:
+                        await audio_input.fill(solution)
+                        
+                        # Submit
+                        verify_button = await page.query_selector("#recaptcha-verify-button")
+                        if verify_button:
+                            await verify_button.click()
+                            await asyncio.sleep(2)
+                            return True
+        
+        return False
+    except Exception as e:
+        LOG.warning("reCAPTCHA audio challenge failed", error=str(e))
+        return False
+
+
+async def _find_captcha_input_field(page: Page):
+    """Find the input field for captcha solution"""
+    try:
+        # Common captcha input field selectors
+        selectors = [
+            "input[name*='captcha']",
+            "input[id*='captcha']",
+            "input[class*='captcha']",
+            "input[name*='verification']",
+            "input[id*='verification']",
+            "input[placeholder*='captcha']",
+            "input[placeholder*='verification']",
+        ]
+        
+        for selector in selectors:
+            element = await page.query_selector(selector)
+            if element:
+                return element
+        
+        # Fallback: look for input near captcha images
+        inputs = await page.query_selector_all("input[type='text']")
+        for inp in inputs:
+            # Check if input is near captcha-related elements
+            return inp  # Return first text input as fallback
+        
+        return None
+    except Exception as e:
+        LOG.warning("Failed to find captcha input field", error=str(e))
+        return None
 
 
 @TraceManager.traced_async(ignore_inputs=["scraped_page", "page"])
