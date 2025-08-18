@@ -1128,8 +1128,6 @@ async def handle_input_text_action(
 
     dom = DomUtil(scraped_page, page)
     skyvern_element = await dom.get_skyvern_element_by_id(action.element_id)
-    print(f"element_id: {action.element_id}")
-    print(f"skyvern_element: {skyvern_element}")
     skyvern_frame = await SkyvernFrame.create_instance(skyvern_element.get_frame())
     incremental_scraped = IncrementalScrapePage(skyvern_frame=skyvern_frame)
     timeout = settings.BROWSER_ACTION_TIMEOUT_MS
@@ -1137,6 +1135,9 @@ async def handle_input_text_action(
     current_text = await get_input_value(skyvern_element.get_tag_name(), skyvern_element.get_locator())
     if current_text == action.text:
         return [ActionSuccess()]
+
+    print(f"action.text: {action.text}")
+    print(f"skyvern_element: {skyvern_element}")
 
     # before filling text, we need to validate if the element can be filled if it's not one of COMMON_INPUT_TAGS
     tag_name = scraped_page.id_to_element_dict[action.element_id]["tagName"].lower()
