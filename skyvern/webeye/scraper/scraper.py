@@ -546,6 +546,9 @@ async def scrape_web_unsafe(
     elements, element_tree = await get_interactable_element_tree(page, scrape_exclude)
     element_tree = await cleanup_element_tree(page, url, copy.deepcopy(element_tree))
     element_tree_trimmed = trim_element_tree(copy.deepcopy(element_tree))
+    
+    # Extract full paths (XPath) for interactable elements and write to file
+    await extract_and_save_element_paths(elements, url)
 
     screenshots = []
     if take_screenshots:
@@ -1021,3 +1024,82 @@ def _build_element_links(elements: list[dict]) -> None:
                             linked_element_id=linked_element["id"],
                         )
                         linked_element["linked_element"] = element["id"]
+
+
+async def extract_and_save_element_paths(elements: list[dict], url: str) -> None:
+    """
+    Extract full paths (XPath) for interactable elements and write them to a file.
+    
+    :param elements: List of element dictionaries from scraping
+    :param url: URL of the scraped page
+    """
+    import os
+    from datetime import datetime
+    
+    # Create output directory if it doesn't exist
+    output_dir = "element_paths"
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Generate filename with timestamp and sanitized URL
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    # Sanitize URL for filename
+    sanitized_url = url.replace("://", "_").replace("/", "_").replace("?", "_").replace("&", "_").replace("=", "_")
+    if len(sanitized_url) > 100:  # Limit filename length
+        sanitized_url = sanitized_url[:100]
+    
+    filename = f"{output_dir}/element_paths_{timestamp}_{sanitized_url}.txt"
+    
+    try:
+        with open(filename, 'w', encoding='utf-8') as f:
+            f.write(f"Element Paths for URL: {url}\n")
+            f.write(f"Scraped at: {datetime.now().isoformat()}\n")
+            f.write(f"Total elements: {len(elements)}\n")
+            f.write("=" * 80 + "\n\n")
+            
+            # Group elements by interactability
+            interactable_elements = [elem for elem in elements if elem.get('interactable', False)]
+            non_interactable_elements = [elem for elem in elements if not elem.get('interactable', False)]
+            
+            f.write(f"INTERACTABLE ELEMENTS ({len(interactable_elements)}):\n")
+            f.write("-" * 40 + "\n")
+            
+            for elem in interactable_elements:
+                elem_id = elem.get('id', 'N/A')
+                tag_name = elem.get('tagName', 'N/A')
+                text = elem.get('text', '').strip()
+                xpath = elem.get('xpath', 'N/A')
+                print(f"XPath: {xpath}")
+                attributes = elem.get('attributes', {})
+                
+                f.write(f"ID: {elem_id}\n")
+                f.write(f"Tag: {tag_name}\n")
+                f.write(f"Text: {text[:100]}{'...' if len(text) > 100 else ''}\n")
+                f.write(f"XPath: {xpath}\n")
+                
+                # Write key attributes
+                if attributes:
+                    f.write("Attributes:\n")
+                    for key, value in attributes.items():
+                        if key in ['id', 'class', 'name', 'type', 'role', 'aria-label', 'title']:
+                            f.write(f"  {key}: {value}\n")
+                
+                f.write("\n")
+            
+            f.write(f"NON-INTERACTABLE ELEMENTS ({len(non_interactable_elements)}):\n")
+            f.write("-" * 40 + "\n")
+            
+            for elem in non_interactable_elements:
+                elem_id = elem.get('id', 'N/A')
+                tag_name = elem.get('tagName', 'N/A')
+                text = elem.get('text', '').strip()
+                xpath = elem.get('xpath', 'N/A')
+                
+                f.write(f"ID: {elem_id}\n")
+                f.write(f"Tag: {tag_name}\n")
+                f.write(f"Text: {text[:100]}{'...' if len(text) > 100 else ''}\n")
+                f.write(f"XPath: {xpath}\n\n")
+        
+        LOG.info(f"Element paths saved to: {filename}")
+        
+    except Exception as e:
+        LOG.error(f"Failed to save element paths to file: {e}", exc_info=True)
