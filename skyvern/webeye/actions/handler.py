@@ -1128,6 +1128,8 @@ async def handle_input_text_action(
 
     dom = DomUtil(scraped_page, page)
     skyvern_element = await dom.get_skyvern_element_by_id(action.element_id)
+    print(f"element_id: {action.element_id}")
+    print(f"skyvern_element: {skyvern_element}")
     skyvern_frame = await SkyvernFrame.create_instance(skyvern_element.get_frame())
     incremental_scraped = IncrementalScrapePage(skyvern_frame=skyvern_frame)
     timeout = settings.BROWSER_ACTION_TIMEOUT_MS
