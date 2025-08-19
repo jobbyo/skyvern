@@ -1134,17 +1134,15 @@ async def handle_input_text_action(
 
     current_text = await get_input_value(skyvern_element.get_tag_name(), skyvern_element.get_locator())
     if current_text == action.text:
-        return [ActionSuccess()]
-
-    print(f"action.text: {action.text}")
-    print(f"skyvern_element: {skyvern_element}")
+        return [ActionSuccess(dom_information=[skyvern_element.get_dom_information(action_text=action.text)])]
 
     # before filling text, we need to validate if the element can be filled if it's not one of COMMON_INPUT_TAGS
     tag_name = scraped_page.id_to_element_dict[action.element_id]["tagName"].lower()
     text: str | None = await get_actual_value_of_parameter_if_secret(task, action.text)
     if text is None:
-        return [ActionFailure(FailedToFetchSecret())]
-
+        return [ActionFailure(FailedToFetchSecret(), dom_information=[skyvern_element.get_dom_information(action_text=action.text)])]
+    
+    LOG.info(f"DOM INFORMATION: {await skyvern_element.get_dom_information()}")
     is_totp_value = text == BitwardenConstants.TOTP or text == OnePasswordConstants.TOTP
     is_secret_value = text != action.text
 
@@ -1157,7 +1155,7 @@ async def handle_input_text_action(
             step_id=step.step_id,
             element_id=skyvern_element.get_id(),
         )
-        return [ActionFailure(InteractWithDisabledElement(skyvern_element.get_id()))]
+        return [ActionFailure(InteractWithDisabledElement(skyvern_element.get_id()), dom_information=[skyvern_element.get_dom_information(action_text=action.text)])]
 
     select_action = SelectOptionAction(
         reasoning=action.reasoning,
@@ -1309,7 +1307,7 @@ async def handle_input_text_action(
     ### Start filling text logic
     # check if the element has hidden attribute
     if await skyvern_element.has_hidden_attr():
-        return [ActionFailure(InputToInvisibleElement(skyvern_element.get_id()), stop_execution_on_failure=False)]
+        return [ActionFailure(InputToInvisibleElement(skyvern_element.get_id()), stop_execution_on_failure=False, dom_information=[skyvern_element.get_dom_information(action_text=action.text)])]
 
     # force to move focus back to the element
     await skyvern_element.get_locator().focus(timeout=timeout)
@@ -1338,7 +1336,7 @@ async def handle_input_text_action(
             await skyvern_element.input_clear()
         except TimeoutError:
             LOG.info("None input tag clear timeout", action=action)
-            return [ActionFailure(InvalidElementForTextInput(element_id=action.element_id, tag_name=tag_name))]
+            return [ActionFailure(InvalidElementForTextInput(element_id=action.element_id, tag_name=tag_name), dom_information=[skyvern_element.get_dom_information(action_text=action.text)])]
         except Exception:
             LOG.warning("Failed to clear the input field", action=action, exc_info=True)
 
@@ -1346,12 +1344,12 @@ async def handle_input_text_action(
             # we need find a better way to detect the attribute in the future
             class_name: str | None = await skyvern_element.get_attr("class")
             if not class_name or "blinking-cursor" not in class_name:
-                return [ActionFailure(InvalidElementForTextInput(element_id=action.element_id, tag_name=tag_name))]
+                return [ActionFailure(InvalidElementForTextInput(element_id=action.element_id, tag_name=tag_name), dom_information=[skyvern_element.get_dom_information(action_text=action.text)])]
 
             if is_totp_value:
                 text = generate_totp_value(task=task, parameter=action.text)
             await skyvern_element.press_fill(text=text)
-            return [ActionSuccess()]
+            return [ActionSuccess(dom_information=[skyvern_element.get_dom_information(action_text=action.text)])]
 
     # wait 2s for blocking element to show up
     await asyncio.sleep(2)
@@ -1376,16 +1374,16 @@ async def handle_input_text_action(
         LOG.info("Skipping the auto completion logic since it's a TOTP input")
         text = generate_totp_value(task=task, parameter=action.text)
         await skyvern_element.input(text)
-        return [ActionSuccess()]
+        return [ActionSuccess(dom_information=[skyvern_element.get_dom_information(action_text=action.text)])]
 
     try:
         # TODO: not sure if this case will trigger auto-completion
         if tag_name not in COMMON_INPUT_TAGS:
             await skyvern_element.input_fill(text)
-            return [ActionSuccess()]
+            return [ActionSuccess(dom_information=[skyvern_element.get_dom_information(action_text=action.text)])]
 
         if len(text) == 0:
-            return [ActionSuccess()]
+            return [ActionSuccess(dom_information=[skyvern_element.get_dom_information(action_text=action.text)])]
 
         if not await skyvern_element.is_raw_input():
             if await skyvern_element.is_auto_completion_input() or input_or_select_context.is_location_input:
@@ -1415,7 +1413,7 @@ async def handle_input_text_action(
                 auto_complete_hacky_flag = True
             await incremental_scraped.stop_listen_dom_increment()
 
-        return [ActionSuccess()]
+        return [ActionSuccess(dom_information=[skyvern_element.get_dom_information(action_text=action.text)])]
     except Exception as e:
         LOG.exception(
             "Failed to input the value or finish the auto completion",
