@@ -345,7 +345,7 @@ class SkyvernElement:
 
         return await get_input_value(self.get_tag_name(), self.get_locator())
     
-    async def get_dom_information(self, action_text: str = "")-> dict[str, typing.Any]:
+    def get_dom_information(self, action_text: str = "")-> dict[str, typing.Any]:
         placeholder = self.get_placeholder()
         if placeholder == "":
             placeholder = self.get_input_name()

@@ -1142,7 +1142,7 @@ async def handle_input_text_action(
     if text is None:
         return [ActionFailure(FailedToFetchSecret(), dom_information=[skyvern_element.get_dom_information(action_text=action.text)])]
     
-    LOG.info(f"DOM INFORMATION: {await skyvern_element.get_dom_information()}")
+    LOG.info(f"DOM INFORMATION: {skyvern_element.get_dom_information(action_text=action.text)}")
     is_totp_value = text == BitwardenConstants.TOTP or text == OnePasswordConstants.TOTP
     is_secret_value = text != action.text
 
@@ -1380,6 +1380,7 @@ async def handle_input_text_action(
         # TODO: not sure if this case will trigger auto-completion
         if tag_name not in COMMON_INPUT_TAGS:
             await skyvern_element.input_fill(text)
+            
             return [ActionSuccess(dom_information=[skyvern_element.get_dom_information(action_text=action.text)])]
 
         if len(text) == 0:
@@ -1478,10 +1479,12 @@ async def handle_upload_file_action(
         return [ActionFailure(InteractWithDisabledElement(skyvern_element.get_id()))]
 
     locator = skyvern_element.locator
+    LOG.info("Uploading file", file_url=file_url)
 
     file_path = await download_file(file_url)
     is_file_input = await skyvern_element.is_file_input()
 
+    LOG.info(f"skyvern_element: {skyvern_element.get_dom_information(str(file_url))}")
     if is_file_input:
         LOG.info("Taking UploadFileAction. Found file input tag", action=action)
         if file_path:
@@ -1493,9 +1496,9 @@ async def handle_upload_file_action(
             # Sleep for 10 seconds after uploading a file to let the page process it
             await asyncio.sleep(10)
 
-            return [ActionSuccess()]
+            return [ActionSuccess(dom_information=[skyvern_element.get_dom_information(action_text=action.file_url)])]
         else:
-            return [ActionFailure(Exception(f"Failed to download file from {action.file_url}"))]
+            return [ActionFailure(Exception(f"Failed to download file from {action.file_url}"), dom_information=[skyvern_element.get_dom_information(action_text=action.file_url)])]
     else:
         LOG.info("Taking UploadFileAction. Found non file input tag", action=action)
         # treat it as a click action
