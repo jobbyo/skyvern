@@ -1577,6 +1577,7 @@ async def handle_select_option_action(
 ) -> list[ActionResult]:
     dom = DomUtil(scraped_page, page)
     skyvern_element = await dom.get_skyvern_element_by_id(action.element_id)
+    LOG.info(f"skyvern_element select option: {skyvern_element.get_dom_information(action.option.label)}")
 
     tag_name = skyvern_element.get_tag_name()
     element_dict = scraped_page.id_to_element_dict[action.element_id]
@@ -1629,6 +1630,7 @@ async def handle_select_option_action(
             )
             action = select_action
             skyvern_element = selectable_child
+            LOG.info(f"skyvern_element select option children: {skyvern_element.get_dom_information(action.option.label)}")
 
     # dynamically validate the attr, since it could change into enabled after the previous actions
     if await skyvern_element.is_disabled(dynamic=True):
@@ -1926,12 +1928,13 @@ async def handle_checkbox_action(
     locator = skyvern_element.locator
 
     if action.is_checked:
+        LOG.info(f"skyvern_element checkbox: {skyvern_element.get_dom_information("checked")}")
         await locator.check(timeout=settings.BROWSER_ACTION_TIMEOUT_MS)
+        return [ActionSuccess(dom_information=[skyvern_element.get_dom_information("checked")])]
     else:
+        LOG.info(f"skyvern_element checkbox: {skyvern_element.get_dom_information("unchecked")}")
         await locator.uncheck(timeout=settings.BROWSER_ACTION_TIMEOUT_MS)
-
-    # TODO (suchintan): Why does checking the label work, but not the actual input element?
-    return [ActionSuccess()]
+        return [ActionSuccess(dom_information=[skyvern_element.get_dom_information("unchecked")])]
 
 
 @TraceManager.traced_async(ignore_inputs=["scraped_page", "page"])
@@ -3292,12 +3295,6 @@ async def select_from_dropdown_by_value(
             task=task, step=step, check_filter_funcs=[check_existed_but_not_option_element_in_dom_factory(dom)]
         ),
     )
-
-    element_locator = await incremental_scraped.select_one_element_by_value(value=value)
-    if element_locator is not None:
-        await element_locator.click(timeout=timeout)
-        return ActionSuccess()
-
     if dropdown_menu_element is None:
         dropdown_menu_element = await locate_dropdown_menu(
             current_anchor_element=skyvern_element,
