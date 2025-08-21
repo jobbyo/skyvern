@@ -2,6 +2,7 @@ import datetime
 
 from sqlalchemy import (
     JSON,
+    TIMESTAMP,
     Boolean,
     Column,
     DateTime,
@@ -11,9 +12,11 @@ from sqlalchemy import (
     Integer,
     Numeric,
     String,
+    Text,
     UnicodeText,
     UniqueConstraint,
     desc,
+    func,
 )
 from sqlalchemy.ext.asyncio import AsyncAttrs
 from sqlalchemy.orm import DeclarativeBase
@@ -175,7 +178,22 @@ class OrganizationAuthTokenModel(Base):
     )
     deleted_at = Column(DateTime, nullable=True)
 
+class TaskDomInformationModel(Base):
+    __tablename__ = "task_dom_information"
 
+    dom_id = Column(Integer, primary_key=True, autoincrement=True)
+    task_id = Column(String, ForeignKey("tasks.task_id", ondelete="CASCADE"), nullable=False)
+    tag = Column(String, nullable=False)
+    xpath = Column(Text, nullable=False)
+    input_type = Column(String, nullable=True)
+    is_mandatory = Column(Boolean, default=False)
+    placeholder = Column(String, nullable=True)
+    value = Column(Text, nullable=True)
+    created_at = Column(TIMESTAMP, nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        Index("idx_task_dom_task_id", "task_id"),
+    )
 class ArtifactModel(Base):
     __tablename__ = "artifacts"
     __table_args__ = (
