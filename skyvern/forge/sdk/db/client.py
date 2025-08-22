@@ -262,7 +262,19 @@ class AgentDB:
         except Exception:
             LOG.exception("UnexpectedError")
             raise
-
+    async def get_dom_information_by_task_id(self, task_id: str):
+        try:
+            async with self.Session() as session:
+                dom_information = (
+                    await session.scalars(
+                        select(TaskDomInformationModel).filter_by(task_id=task_id)
+                    )
+                )
+                return dom_information.all()
+        except SQLAlchemyError:
+            LOG.error("SQLAlchemyError", exc_info=True)
+            raise
+        
     async def get_task(self, task_id: str, organization_id: str | None = None) -> Task | None:
         """Get a task by its id"""
         try:

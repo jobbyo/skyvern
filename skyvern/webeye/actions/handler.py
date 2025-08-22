@@ -1139,12 +1139,12 @@ async def handle_input_text_action(
     dom_information = skyvern_element.get_dom_information(action_text=action.text)
     await DATABASE.insert_dom_information_for_task(
         task_id=task.task_id,
-        tag=dom_information["tag"],
-        xpath=dom_information["xpath"],
-        input_type=dom_information["input_type"],
-        is_mandatory=dom_information["is_mandatory"],
-        placeholder=dom_information["placeholder"],
-        value=dom_information["value"],
+        tag=dom_information.tag,
+        xpath=dom_information.xpath,
+        input_type=dom_information.input_type,
+        is_mandatory=dom_information.is_mandatory,
+        placeholder=dom_information.placeholder,
+        value=dom_information.value,
     )
     current_text = await get_input_value(skyvern_element.get_tag_name(), skyvern_element.get_locator())
     if current_text == action.text:
@@ -1484,14 +1484,13 @@ async def handle_upload_file_action(
     dom_information =  skyvern_element.get_dom_information(action_text=action.file_url)
     await DATABASE.insert_dom_information_for_task(
         task_id=task.task_id,
-        tag=dom_information["tag"],
-        xpath=dom_information["xpath"],
-        input_type=dom_information["input_type"],
-        is_mandatory=dom_information["is_mandatory"],
-        placeholder=dom_information["placeholder"],
-        value=dom_information["value"],
+        tag=dom_information.tag,
+        xpath=dom_information.xpath,
+        input_type=dom_information.input_type,
+        is_mandatory=dom_information.is_mandatory,
+        placeholder=dom_information.placeholder,
+        value=dom_information.value
     )
-    
     # dynamically validate the attr, since it could change into enabled after the previous actions
     if await skyvern_element.is_disabled(dynamic=True):
         LOG.warning(
@@ -1606,12 +1605,12 @@ async def handle_select_option_action(
     LOG.info(f"skyvern_element select option: {dom_information}")
     await DATABASE.insert_dom_information_for_task(
         task_id=task.task_id,
-        tag=dom_information["tag"],
-        xpath=dom_information["xpath"],
-        input_type=dom_information["input_type"],
-        is_mandatory=dom_information["is_mandatory"],
-        placeholder=dom_information["placeholder"],
-        value=dom_information["value"],
+        tag=dom_information.tag,
+        xpath=dom_information.xpath,
+        input_type=dom_information.input_type,
+        is_mandatory=dom_information.is_mandatory,
+        placeholder=dom_information.placeholder,
+        value=dom_information.value,
     )
     tag_name = skyvern_element.get_tag_name()
     element_dict = scraped_page.id_to_element_dict[action.element_id]
@@ -1963,12 +1962,12 @@ async def handle_checkbox_action(
     dom_information =  skyvern_element.get_dom_information(action_text='checked' if action.is_checked else 'unchecked')
     await DATABASE.insert_dom_information_for_task(
         task_id=task.task_id,
-        tag=dom_information["tag"],
-        xpath=dom_information["xpath"],
-        input_type=dom_information["input_type"],
-        is_mandatory=dom_information["is_mandatory"],
-        placeholder=dom_information["placeholder"],
-        value=dom_information["value"],
+        tag=dom_information.tag,
+        xpath=dom_information.xpath,
+        input_type=dom_information.input_type,
+        is_mandatory=dom_information.is_mandatory,
+        placeholder=dom_information.placeholder,
+        value=dom_information.value,
     )
     if action.is_checked:
         LOG.info(f"skyvern_element checkbox: {dom_information}")

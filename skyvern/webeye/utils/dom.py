@@ -24,6 +24,7 @@ from skyvern.exceptions import (
     NoneFrameError,
     SkyvernException,
 )
+from skyvern.schemas.runs import TaskDomInformation
 from skyvern.webeye.actions import handler_utils
 from skyvern.webeye.scraper.scraper import IncrementalScrapePage, ScrapedPage, json_to_html, trim_element
 from skyvern.webeye.utils.page import SkyvernFrame
@@ -345,19 +346,19 @@ class SkyvernElement:
 
         return await get_input_value(self.get_tag_name(), self.get_locator())
     
-    def get_dom_information(self, action_text: str = "")-> dict[str, typing.Any]:
+    def get_dom_information(self, action_text: str = "")-> TaskDomInformation:
         placeholder = self.get_placeholder()
         if placeholder == "":
             placeholder = self.get_input_name()
+        return TaskDomInformation(
+            tag=self._tag_name,
+            xpath=self.get_xpath(),
+            input_type=self.get_input_type(),
+            is_mandatory=self.is_required(),
+            placeholder=placeholder,
+            value=action_text,
+        )
 
-        return {
-            "xpath": self.get_xpath(),
-            "tag": self._tag_name,
-            "input_type": self.get_input_type(),
-            "is_mandatory": self.is_required(),
-            "placeholder": placeholder,
-            "value": action_text,
-        }
     
     def get_id(self) -> str:
         return self._id_cache
