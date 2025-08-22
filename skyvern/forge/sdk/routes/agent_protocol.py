@@ -84,6 +84,7 @@ from skyvern.schemas.runs import (
     RunType,
     TaskRunRequest,
     TaskRunResponse,
+    TaskDomInformation,
     WorkflowRunRequest,
     WorkflowRunResponse,
 )
@@ -99,6 +100,17 @@ class AISuggestionType(str, Enum):
 
 
 ################# /v1 Endpoints #################
+@base_router.get(
+    "/run/tasks/{task_id}/dom_information/",
+    tags=["Agent"],
+    description="Get the dom information for a task",
+    summary="Get the dom information for a task",
+)
+async def get_dom_information(
+    task_id: str
+) -> list[TaskDomInformation]:
+    return await app.DATABASE.get_dom_information_by_task_id(task_id)
+
 @base_router.post(
     "/run/tasks",
     tags=["Agent"],

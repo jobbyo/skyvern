@@ -68,9 +68,11 @@ from skyvern.forge.sdk.core.security import generate_skyvern_signature
 from skyvern.forge.sdk.core.skyvern_context import ensure_context
 from skyvern.forge.sdk.db.enums import OrganizationAuthTokenType
 from skyvern.forge.sdk.models import Step
+from skyvern.forge.sdk.db import client
 from skyvern.forge.sdk.schemas.tasks import Task
 from skyvern.forge.sdk.services.bitwarden import BitwardenConstants
 from skyvern.forge.sdk.services.credentials import OnePasswordConstants
+from skyvern.forge.sdk.settings_manager import SettingsManager
 from skyvern.forge.sdk.trace import TraceManager
 from skyvern.services.task_v1_service import is_cua_task
 from skyvern.utils.prompt_engine import CheckPhoneNumberFormatResponse, load_prompt_with_elements
@@ -104,7 +106,10 @@ from skyvern.webeye.utils.page import SkyvernFrame
 
 LOG = structlog.get_logger()
 
-
+DATABASE = client.AgentDB(
+    SettingsManager.get_settings().DATABASE_STRING,
+    debug_enabled=SettingsManager.get_settings().DEBUG_MODE,
+)
 class CustomSingleSelectResult:
     def __init__(self, skyvern_frame: SkyvernFrame) -> None:
         self.reasoning: str | None = None
@@ -1131,17 +1136,28 @@ async def handle_input_text_action(
     skyvern_frame = await SkyvernFrame.create_instance(skyvern_element.get_frame())
     incremental_scraped = IncrementalScrapePage(skyvern_frame=skyvern_frame)
     timeout = settings.BROWSER_ACTION_TIMEOUT_MS
-
+    dom_information = skyvern_element.get_dom_information(action_text=action.text)
+    await DATABASE.insert_dom_information_for_task(
+        task_id=task.task_id,
+        tag=dom_information.tag,
+        xpath=dom_information.xpath,
+        input_type=dom_information.input_type,
+        is_mandatory=dom_information.is_mandatory,
+        placeholder=dom_information.placeholder,
+        value=dom_information.value,
+    )
     current_text = await get_input_value(skyvern_element.get_tag_name(), skyvern_element.get_locator())
     if current_text == action.text:
-        return [ActionSuccess()]
+        return [ActionSuccess(dom_information=[dom_information])]
 
     # before filling text, we need to validate if the element can be filled if it's not one of COMMON_INPUT_TAGS
     tag_name = scraped_page.id_to_element_dict[action.element_id]["tagName"].lower()
     text: str | None = await get_actual_value_of_parameter_if_secret(task, action.text)
-    if text is None:
-        return [ActionFailure(FailedToFetchSecret())]
 
+    if text is None:
+        return [ActionFailure(FailedToFetchSecret(), dom_information=[dom])]
+    
+    LOG.info(f"DOM INFORMATION: {dom_information}")
     is_totp_value = text == BitwardenConstants.TOTP or text == OnePasswordConstants.TOTP
     is_secret_value = text != action.text
 
@@ -1154,7 +1170,7 @@ async def handle_input_text_action(
             step_id=step.step_id,
             element_id=skyvern_element.get_id(),
         )
-        return [ActionFailure(InteractWithDisabledElement(skyvern_element.get_id()))]
+        return [ActionFailure(InteractWithDisabledElement(skyvern_element.get_id()), dom_information=[dom_information])]
 
     select_action = SelectOptionAction(
         reasoning=action.reasoning,
@@ -1306,7 +1322,7 @@ async def handle_input_text_action(
     ### Start filling text logic
     # check if the element has hidden attribute
     if await skyvern_element.has_hidden_attr():
-        return [ActionFailure(InputToInvisibleElement(skyvern_element.get_id()), stop_execution_on_failure=False)]
+        return [ActionFailure(InputToInvisibleElement(skyvern_element.get_id()), stop_execution_on_failure=False, dom_information=[dom_information])]
 
     # force to move focus back to the element
     await skyvern_element.get_locator().focus(timeout=timeout)
@@ -1335,7 +1351,7 @@ async def handle_input_text_action(
             await skyvern_element.input_clear()
         except TimeoutError:
             LOG.info("None input tag clear timeout", action=action)
-            return [ActionFailure(InvalidElementForTextInput(element_id=action.element_id, tag_name=tag_name))]
+            return [ActionFailure(InvalidElementForTextInput(element_id=action.element_id, tag_name=tag_name), dom_information=[dom_information])]
         except Exception:
             LOG.warning("Failed to clear the input field", action=action, exc_info=True)
 
@@ -1343,12 +1359,12 @@ async def handle_input_text_action(
             # we need find a better way to detect the attribute in the future
             class_name: str | None = await skyvern_element.get_attr("class")
             if not class_name or "blinking-cursor" not in class_name:
-                return [ActionFailure(InvalidElementForTextInput(element_id=action.element_id, tag_name=tag_name))]
+                return [ActionFailure(InvalidElementForTextInput(element_id=action.element_id, tag_name=tag_name), dom_information=[dom_information])]
 
             if is_totp_value:
                 text = generate_totp_value(task=task, parameter=action.text)
             await skyvern_element.press_fill(text=text)
-            return [ActionSuccess()]
+            return [ActionSuccess(dom_information=[dom_information])]
 
     # wait 2s for blocking element to show up
     await asyncio.sleep(2)
@@ -1373,16 +1389,17 @@ async def handle_input_text_action(
         LOG.info("Skipping the auto completion logic since it's a TOTP input")
         text = generate_totp_value(task=task, parameter=action.text)
         await skyvern_element.input(text)
-        return [ActionSuccess()]
+        return [ActionSuccess(dom_information=[dom_information])]
 
     try:
         # TODO: not sure if this case will trigger auto-completion
         if tag_name not in COMMON_INPUT_TAGS:
             await skyvern_element.input_fill(text)
-            return [ActionSuccess()]
+            
+            return [ActionSuccess(dom_information=[dom_information])]
 
         if len(text) == 0:
-            return [ActionSuccess()]
+            return [ActionSuccess(dom_information=[dom_information])]
 
         if not await skyvern_element.is_raw_input():
             if await skyvern_element.is_auto_completion_input() or input_or_select_context.is_location_input:
@@ -1412,7 +1429,7 @@ async def handle_input_text_action(
                 auto_complete_hacky_flag = True
             await incremental_scraped.stop_listen_dom_increment()
 
-        return [ActionSuccess()]
+        return [ActionSuccess(dom_information=[dom_information])]
     except Exception as e:
         LOG.exception(
             "Failed to input the value or finish the auto completion",
@@ -1464,7 +1481,16 @@ async def handle_upload_file_action(
 
     dom = DomUtil(scraped_page=scraped_page, page=page)
     skyvern_element = await dom.get_skyvern_element_by_id(action.element_id)
-
+    dom_information =  skyvern_element.get_dom_information(action_text=action.file_url)
+    await DATABASE.insert_dom_information_for_task(
+        task_id=task.task_id,
+        tag=dom_information.tag,
+        xpath=dom_information.xpath,
+        input_type=dom_information.input_type,
+        is_mandatory=dom_information.is_mandatory,
+        placeholder=dom_information.placeholder,
+        value=dom_information.value
+    )
     # dynamically validate the attr, since it could change into enabled after the previous actions
     if await skyvern_element.is_disabled(dynamic=True):
         LOG.warning(
@@ -1477,10 +1503,12 @@ async def handle_upload_file_action(
         return [ActionFailure(InteractWithDisabledElement(skyvern_element.get_id()))]
 
     locator = skyvern_element.locator
+    LOG.info("Uploading file", file_url=file_url)
 
     file_path = await download_file(file_url)
     is_file_input = await skyvern_element.is_file_input()
 
+    LOG.info(f"skyvern_element: {dom_information}")
     if is_file_input:
         LOG.info("Taking UploadFileAction. Found file input tag", action=action)
         if file_path:
@@ -1492,9 +1520,9 @@ async def handle_upload_file_action(
             # Sleep for 10 seconds after uploading a file to let the page process it
             await asyncio.sleep(10)
 
-            return [ActionSuccess()]
+            return [ActionSuccess(dom_information=[dom_information])]
         else:
-            return [ActionFailure(Exception(f"Failed to download file from {action.file_url}"))]
+            return [ActionFailure(Exception(f"Failed to download file from {action.file_url}"), dom_information=[dom_information])]
     else:
         LOG.info("Taking UploadFileAction. Found non file input tag", action=action)
         # treat it as a click action
@@ -1573,7 +1601,17 @@ async def handle_select_option_action(
 ) -> list[ActionResult]:
     dom = DomUtil(scraped_page, page)
     skyvern_element = await dom.get_skyvern_element_by_id(action.element_id)
-
+    dom_information = skyvern_element.get_dom_information(action.option.label)
+    LOG.info(f"skyvern_element select option: {dom_information}")
+    await DATABASE.insert_dom_information_for_task(
+        task_id=task.task_id,
+        tag=dom_information.tag,
+        xpath=dom_information.xpath,
+        input_type=dom_information.input_type,
+        is_mandatory=dom_information.is_mandatory,
+        placeholder=dom_information.placeholder,
+        value=dom_information.value,
+    )
     tag_name = skyvern_element.get_tag_name()
     element_dict = scraped_page.id_to_element_dict[action.element_id]
     LOG.info(
@@ -1625,6 +1663,7 @@ async def handle_select_option_action(
             )
             action = select_action
             skyvern_element = selectable_child
+            LOG.info(f"skyvern_element select option children: {dom_information}")
 
     # dynamically validate the attr, since it could change into enabled after the previous actions
     if await skyvern_element.is_disabled(dynamic=True):
@@ -1920,14 +1959,24 @@ async def handle_checkbox_action(
     dom = DomUtil(scraped_page=scraped_page, page=page)
     skyvern_element = await dom.get_skyvern_element_by_id(action.element_id)
     locator = skyvern_element.locator
-
+    dom_information =  skyvern_element.get_dom_information(action_text='checked' if action.is_checked else 'unchecked')
+    await DATABASE.insert_dom_information_for_task(
+        task_id=task.task_id,
+        tag=dom_information.tag,
+        xpath=dom_information.xpath,
+        input_type=dom_information.input_type,
+        is_mandatory=dom_information.is_mandatory,
+        placeholder=dom_information.placeholder,
+        value=dom_information.value,
+    )
     if action.is_checked:
+        LOG.info(f"skyvern_element checkbox: {dom_information}")
         await locator.check(timeout=settings.BROWSER_ACTION_TIMEOUT_MS)
+        return [ActionSuccess(dom_information=[dom_information])]
     else:
+        LOG.info(f"skyvern_element checkbox: {dom_information}")
         await locator.uncheck(timeout=settings.BROWSER_ACTION_TIMEOUT_MS)
-
-    # TODO (suchintan): Why does checking the label work, but not the actual input element?
-    return [ActionSuccess()]
+        return [ActionSuccess(dom_information=[dom_information])]
 
 
 @TraceManager.traced_async(ignore_inputs=["scraped_page", "page"])
@@ -3288,12 +3337,6 @@ async def select_from_dropdown_by_value(
             task=task, step=step, check_filter_funcs=[check_existed_but_not_option_element_in_dom_factory(dom)]
         ),
     )
-
-    element_locator = await incremental_scraped.select_one_element_by_value(value=value)
-    if element_locator is not None:
-        await element_locator.click(timeout=timeout)
-        return ActionSuccess()
-
     if dropdown_menu_element is None:
         dropdown_menu_element = await locate_dropdown_menu(
             current_anchor_element=skyvern_element,

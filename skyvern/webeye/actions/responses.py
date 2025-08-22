@@ -19,6 +19,7 @@ class ActionResult(BaseModel):
     interacted_with_parent: bool | None = None
     skip_remaining_actions: bool | None = None
     tool_call_result: dict[str, Any] | None = None
+    dom_information: list[dict[str, Any]] | None = None
 
     def __str__(self) -> str:
         results = [f"ActionResult(success={self.success}"]
@@ -53,6 +54,7 @@ class ActionSuccess(ActionResult):
         download_triggered: bool | None = None,
         interacted_with_sibling: bool = False,
         interacted_with_parent: bool = False,
+        dom_information: list[dict[str, Any]] | None = None,
     ):
         super().__init__(
             success=True,
@@ -60,6 +62,7 @@ class ActionSuccess(ActionResult):
             download_triggered=download_triggered,
             interacted_with_sibling=interacted_with_sibling,
             interacted_with_parent=interacted_with_parent,
+            dom_information=dom_information,
         )
 
 
@@ -71,6 +74,7 @@ class ActionFailure(ActionResult):
         download_triggered: bool | None = None,
         interacted_with_sibling: bool = False,
         interacted_with_parent: bool = False,
+        dom_information: list[dict[str, Any]] | None = None,
     ):
         super().__init__(
             success=False,
@@ -80,6 +84,7 @@ class ActionFailure(ActionResult):
             download_triggered=download_triggered,
             interacted_with_sibling=interacted_with_sibling,
             interacted_with_parent=interacted_with_parent,
+            dom_information=dom_information,
         )
 
 
@@ -91,10 +96,12 @@ class ActionAbort(ActionResult):
         download_triggered: bool | None = None,
         interacted_with_sibling: bool = False,
         interacted_with_parent: bool = False,
+        dom_information: list[dict[str, Any]] | None = None,
     ):
         super().__init__(
             success=True,
             download_triggered=download_triggered,
             interacted_with_sibling=interacted_with_sibling,
             interacted_with_parent=interacted_with_parent,
+            dom_information=dom_information,
         )

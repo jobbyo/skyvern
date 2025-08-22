@@ -251,6 +251,7 @@ class Task(TaskBase):
     queued_at: datetime | None = None
     started_at: datetime | None = None
     finished_at: datetime | None = None
+    dom_interactions: list[dict[str, Any]] | None = None
 
     @property
     def llm_key(self) -> str | None:

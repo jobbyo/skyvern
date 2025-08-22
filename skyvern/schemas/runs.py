@@ -404,6 +404,13 @@ class BaseRunResponse(BaseModel):
         description="The maximum number of scrolls for the post action screenshot. When it's None or 0, it takes the current viewpoint screenshot",
     )
 
+class TaskDomInformation(BaseModel):
+    tag: str = Field(description="The tag of the dom information")
+    xpath: str = Field(description="The xpath of the dom information")
+    input_type: str | None = Field(description="The input type of the dom information")
+    is_mandatory: bool = Field(description="Whether the dom information is mandatory")
+    placeholder: str | None = Field(description="The placeholder of the dom information")
+    value: str | None = Field(description="The value of the dom information")
 
 class TaskRunResponse(BaseRunResponse):
     run_type: Literal[RunType.task_v1, RunType.task_v2, RunType.openai_cua, RunType.anthropic_cua, RunType.ui_tars] = (

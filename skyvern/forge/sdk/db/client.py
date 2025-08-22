@@ -29,6 +29,7 @@ from skyvern.forge.sdk.db.models import (
     OutputParameterModel,
     PersistentBrowserSessionModel,
     StepModel,
+    TaskDomInformationModel,
     TaskGenerationModel,
     TaskModel,
     TaskRunModel,
@@ -261,7 +262,19 @@ class AgentDB:
         except Exception:
             LOG.exception("UnexpectedError")
             raise
-
+    async def get_dom_information_by_task_id(self, task_id: str):
+        try:
+            async with self.Session() as session:
+                dom_information = (
+                    await session.scalars(
+                        select(TaskDomInformationModel).filter_by(task_id=task_id)
+                    )
+                )
+                return dom_information.all()
+        except SQLAlchemyError:
+            LOG.error("SQLAlchemyError", exc_info=True)
+            raise
+        
     async def get_task(self, task_id: str, organization_id: str | None = None) -> Task | None:
         """Get a task by its id"""
         try:
@@ -957,6 +970,56 @@ class AgentDB:
                     return [convert_to_artifact(artifact, self.debug_enabled) for artifact in artifacts]
                 else:
                     return []
+        except SQLAlchemyError:
+            LOG.error("SQLAlchemyError", exc_info=True)
+            raise
+        except Exception:
+            LOG.error("UnexpectedError", exc_info=True)
+            raise
+
+    async def get_dom_information_for_task(
+        self,
+        task_id: str,
+    ):
+        try:
+            async with self.Session() as session:
+                query = select(TaskDomInformationModel).filter_by(task_id=task_id)
+                if dom_informations := (await session.scalars(query)).all():
+                    return [dom_information for dom_information in dom_informations]
+                else:
+                    return []
+        except SQLAlchemyError:
+            LOG.error("SQLAlchemyError", exc_info=True)
+            raise
+        except Exception:
+            LOG.error("UnexpectedError", exc_info=True)
+            raise
+
+    async def insert_dom_information_for_task(
+        self,
+        task_id: str,
+        tag: str,
+        xpath: str,
+        input_type: str | None = None,
+        is_mandatory: bool | None = None,
+        placeholder: str | None = None,
+        value: str | None = None,
+    ):
+        try:
+            async with self.Session() as session:
+                dom_information = TaskDomInformationModel(
+                    task_id=task_id,
+                    tag=tag,
+                    xpath=xpath,
+                    input_type=input_type,
+                    is_mandatory=is_mandatory,
+                    placeholder=placeholder,
+                    value=value,
+                )
+                session.add(dom_information)
+                await session.commit()
+                await session.refresh(dom_information)
+                return dom_information
         except SQLAlchemyError:
             LOG.error("SQLAlchemyError", exc_info=True)
             raise

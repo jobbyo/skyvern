@@ -91,6 +91,10 @@ class TaskRunResponse(UniversalBaseModel):
     """
     The original request parameters used to start this task run
     """
+    dom_elements: typing.Optional[typing.List[dict[str, typing.Any]]] = pydantic.Field(default=None)
+    """
+    List of DOM elements that were interacted with during the run
+    """
 
     if IS_PYDANTIC_V2:
         model_config: typing.ClassVar[pydantic.ConfigDict] = pydantic.ConfigDict(extra="allow", frozen=True)  # type: ignore # Pydantic v2
