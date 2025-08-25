@@ -1824,6 +1824,7 @@ class AsyncSkyvern:
         include_action_history_in_verification: typing.Optional[bool] = OMIT,
         max_screenshot_scrolls: typing.Optional[int] = OMIT,
         request_options: typing.Optional[RequestOptions] = None,
+        user_email: typing.Optional[str] = OMIT,
     ) -> TaskRunResponse:
         """
         Run a task
@@ -1919,6 +1920,9 @@ class AsyncSkyvern:
         request_options : typing.Optional[RequestOptions]
             Request-specific configuration.
 
+        user_email : typing.Optional[str]
+            The email of the user running the task (identifier).
+
         Returns
         -------
         TaskRunResponse
@@ -1967,6 +1971,7 @@ class AsyncSkyvern:
                 "publish_workflow": publish_workflow,
                 "include_action_history_in_verification": include_action_history_in_verification,
                 "max_screenshot_scrolls": max_screenshot_scrolls,
+                "user_email": user_email,
             },
             headers={
                 "x-user-agent": str(user_agent) if user_agent is not None else None,
