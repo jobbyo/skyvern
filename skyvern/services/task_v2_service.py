@@ -169,6 +169,7 @@ async def initialize_task_v2(
     max_screenshot_scrolling_times: int | None = None,
     browser_session_id: str | None = None,
     extra_http_headers: dict[str, str] | None = None,
+    user_email: str | None = None,
 ) -> TaskV2:
     task_v2 = await app.DATABASE.create_task_v2(
         prompt=user_prompt,
@@ -284,6 +285,7 @@ async def initialize_task_v2(
                 title=new_workflow.title,
                 url=url,
                 url_hash=generate_url_hash(url),
+                user_email=user_email,
             )
     except Exception:
         LOG.warning("Failed to update task 2.0", exc_info=True)

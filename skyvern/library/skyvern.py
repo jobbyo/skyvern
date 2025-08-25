@@ -318,6 +318,7 @@ class Skyvern(AsyncSkyvern):
         timeout: float = DEFAULT_AGENT_TIMEOUT,
         browser_session_id: str | None = None,
         user_agent: str | None = None,
+        user_email: str | None = None,
     ) -> TaskRunResponse:
         if not self._api_key:
             if engine == RunEngine.skyvern_v1 or engine in CUA_ENGINES:
@@ -359,6 +360,7 @@ class Skyvern(AsyncSkyvern):
                     title=task_request.title,
                     url=task_request.url,
                     url_hash=url_hash,
+                    user_email=user_email,
                 )
                 try:
                     await self._run_task(organization, created_task, engine=engine)
@@ -387,6 +389,7 @@ class Skyvern(AsyncSkyvern):
                     error_code_mapping=error_code_mapping,
                     create_task_run=True,
                     model=model,
+                    user_email=user_email,
                 )
 
                 await self._run_task_v2(organization, task_v2)
@@ -409,6 +412,7 @@ class Skyvern(AsyncSkyvern):
             proxy_location=proxy_location,
             max_steps=max_steps,
             user_agent=user_agent,
+            user_email=user_email,
         )
 
         if wait_for_completion:
