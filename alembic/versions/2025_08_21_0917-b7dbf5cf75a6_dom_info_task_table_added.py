@@ -23,6 +23,7 @@ def upgrade() -> None:
     op.create_table('task_dom_information',
     sa.Column('dom_id', sa.INTEGER(), autoincrement=True, nullable=False),
     sa.Column('task_id', sa.VARCHAR(), autoincrement=False, nullable=False),
+    sa.Column('tag', sa.VARCHAR(), autoincrement=False, nullable=False),
     sa.Column('xpath', sa.TEXT(), autoincrement=False, nullable=False),
     sa.Column('input_type', sa.VARCHAR(), autoincrement=False, nullable=True),
     sa.Column('is_mandatory', sa.BOOLEAN(), server_default=sa.text('false'), autoincrement=False, nullable=True),

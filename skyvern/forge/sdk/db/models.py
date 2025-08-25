@@ -737,6 +737,7 @@ class TaskRunModel(Base):
     title = Column(String, nullable=True)
     url = Column(String, nullable=True)
     url_hash = Column(String, nullable=True)
+    user_email = Column(String, nullable=True)
     cached = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
     modified_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow, nullable=False)

@@ -183,6 +183,7 @@ async def run_task(
             model=run_request.model,
             max_screenshot_scrolls=run_request.max_screenshot_scrolls,
             extra_http_headers=run_request.extra_http_headers,
+            user_email=run_request.user_email,
         )
         task_v1_response = await task_v1_service.run_task(
             task=task_v1_request,
@@ -241,6 +242,7 @@ async def run_task(
                 model=run_request.model,
                 max_screenshot_scrolling_times=run_request.max_screenshot_scrolls,
                 extra_http_headers=run_request.extra_http_headers,
+                user_email=run_request.user_email,
             )
         except MissingBrowserAddressError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e

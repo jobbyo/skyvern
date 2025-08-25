@@ -293,6 +293,10 @@ class TaskRunRequest(BaseModel):
         default=None,
         description="The maximum number of scrolls for the post action screenshot. When it's None or 0, it takes the current viewpoint screenshot.",
     )
+    user_email: str | None = Field(
+        default=None,
+        description="The email of the user who is running the task",
+    )
 
     @field_validator("url", "webhook_url", "totp_url")
     @classmethod
