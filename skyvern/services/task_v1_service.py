@@ -82,7 +82,6 @@ async def run_task(
     x_api_key: str | None = None,
     request: Request | None = None,
     background_tasks: BackgroundTasks | None = None,
-    user_email: str | None = None,
 ) -> Task:
     created_task = await app.agent.create_task(task, organization.organization_id)
     url_hash = generate_url_hash(task.url)
@@ -100,7 +99,7 @@ async def run_task(
         title=task.title,
         url=task.url,
         url_hash=url_hash,
-        user_email=user_email,
+        user_email=task.user_email,
     )
     if x_max_steps_override:
         LOG.info(

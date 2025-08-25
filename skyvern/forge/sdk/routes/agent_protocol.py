@@ -183,6 +183,7 @@ async def run_task(
             model=run_request.model,
             max_screenshot_scrolls=run_request.max_screenshot_scrolls,
             extra_http_headers=run_request.extra_http_headers,
+            user_email=run_request.user_email,
         )
         task_v1_response = await task_v1_service.run_task(
             task=task_v1_request,
@@ -192,7 +193,6 @@ async def run_task(
             x_api_key=x_api_key,
             request=request,
             background_tasks=background_tasks,
-            user_email=run_request.user_email,
         )
         run_type = RunType.task_v1
         if run_request.engine == RunEngine.openai_cua:
