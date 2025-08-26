@@ -183,7 +183,7 @@ class TaskDomInformationModel(Base):
 
     dom_id = Column(Integer, primary_key=True, autoincrement=True)
     task_id = Column(String, ForeignKey("tasks.task_id", ondelete="CASCADE"), nullable=False)
-    workflow_run_id = Column(String, ForeignKey("workflow_runs.workflow_run_id", ondelete="CASCADE"), nullable=False, index=True)
+    workflow_run_id = Column(String, ForeignKey("workflow_runs.workflow_run_id", ondelete="CASCADE"), nullable=False)
     tag = Column(String, nullable=False)
     xpath = Column(Text, nullable=False)
     input_type = Column(String, nullable=True)
@@ -739,7 +739,7 @@ class TaskRunModel(Base):
     url = Column(String, nullable=True)
     url_hash = Column(String, nullable=True)
     user_email = Column(String, nullable=True)
-    workflow_run_id = Column(String, ForeignKey("workflow_runs.workflow_run_id"), nullable=True, index=True)
+    workflow_run_id = Column(String, ForeignKey("workflow_runs.workflow_run_id"), nullable=True)
     cached = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
     modified_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow, nullable=False)
