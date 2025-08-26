@@ -194,6 +194,7 @@ class TaskDomInformationModel(Base):
 
     __table_args__ = (
         Index("idx_task_dom_task_id", "task_id"),
+        Index("idx_task_dom_workflow_run_id", "workflow_run_id"),
     )
 class ArtifactModel(Base):
     __tablename__ = "artifacts"
@@ -729,6 +730,7 @@ class TaskRunModel(Base):
     __table_args__ = (
         Index("task_run_org_url_index", "organization_id", "url_hash", "cached"),
         Index("task_run_org_run_id_index", "organization_id", "run_id"),
+        Index("task_run_workflow_run_id_index", "workflow_run_id"),
     )
 
     task_run_id = Column(String, primary_key=True, default=generate_task_run_id)
