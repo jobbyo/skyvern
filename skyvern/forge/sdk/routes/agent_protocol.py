@@ -123,6 +123,7 @@ async def get_dom_information_by_user_and_job(
     body = await request.json()
     user_email = body.get("user_email")
     job_link = body.get("job_link")
+    print("agent protocol get_dom_information_by_user_and_job", user_email, job_link)
     
     if not user_email or not job_link:
         raise HTTPException(
