@@ -112,6 +112,27 @@ async def get_dom_information(
     return await app.DATABASE.get_dom_information_by_task_id(task_id)
 
 @base_router.post(
+    "/run/tasks/dom_information/by_user_and_job/",
+    tags=["Agent"],
+    description="Get the dom information for a task by user email and job url",
+    summary="Get the dom information for a task by user email and job url",
+)
+async def get_dom_information_by_user_and_job(
+    request: Request,
+) -> list[TaskDomInformation]:
+    body = await request.json()
+    user_email = body.get("user_email")
+    job_link = body.get("job_link")
+    
+    if not user_email or not job_link:
+        raise HTTPException(
+            status_code=400, 
+            detail="Both user_email and job_link are required"
+        )
+    
+    return await app.DATABASE.get_dom_information_by_user_and_job(user_email, job_link)
+
+@base_router.post(
     "/run/tasks",
     tags=["Agent"],
     openapi_extra={

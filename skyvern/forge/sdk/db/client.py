@@ -274,7 +274,53 @@ class AgentDB:
         except SQLAlchemyError:
             LOG.error("SQLAlchemyError", exc_info=True)
             raise
+
+    async def get_dom_information_by_user_and_job(self, user_email: str, url: str):
+        """
+        Get DOM information by joining task_runs, task_dom_information, and workflow_runs tables
+        based on user_email, url, and workflow status.
         
+        This implements the SQL query:
+        SELECT tag, xpath, input_type, is_mandatory, placeholder, value 
+        FROM public.task_runs 
+        JOIN public.task_dom_information ON task_runs.workflow_run_id = task_dom_information.workflow_run_id
+        JOIN public.workflow_runs ON task_runs.workflow_run_id = workflow_runs.workflow_run_id
+        WHERE user_email = 'user_email' AND url = 'url' AND workflow_runs.status = 'completed'
+        """
+        try:
+            async with self.Session() as session:
+                # Join task_runs, task_dom_information, and workflow_runs on workflow_run_id
+                # Filter by user_email, url, and workflow status
+                # Select only the specific fields needed
+                dom_information = (
+                    await session.execute(
+                        select(
+                            TaskDomInformationModel.tag,
+                            TaskDomInformationModel.xpath,
+                            TaskDomInformationModel.input_type,
+                            TaskDomInformationModel.is_mandatory,
+                            TaskDomInformationModel.placeholder,
+                            TaskDomInformationModel.value
+                        )
+                        .join(TaskRunModel, TaskDomInformationModel.workflow_run_id == TaskRunModel.workflow_run_id)
+                        .join(WorkflowRunModel, TaskDomInformationModel.workflow_run_id == WorkflowRunModel.workflow_run_id)
+                        .where(
+                            and_(
+                                TaskRunModel.user_email == user_email,
+                                TaskRunModel.url == url,
+                                WorkflowRunModel.status == "completed"
+                            )
+                        )
+                    )
+                )
+                return dom_information.all()
+        except SQLAlchemyError:
+            LOG.error("SQLAlchemyError", exc_info=True)
+            raise
+        except Exception:
+            LOG.error("UnexpectedError", exc_info=True)
+            raise
+
     async def get_task(self, task_id: str, organization_id: str | None = None) -> Task | None:
         """Get a task by its id"""
         try:
