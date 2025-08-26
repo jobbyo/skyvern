@@ -183,7 +183,7 @@ class TaskDomInformationModel(Base):
 
     dom_id = Column(Integer, primary_key=True, autoincrement=True)
     task_id = Column(String, ForeignKey("tasks.task_id", ondelete="CASCADE"), nullable=False)
-    workflow_run_id = Column(String, ForeignKey("workflow_runs.workflow_run_id", ondelete="CASCADE"), nullable=False)
+    workflow_run_id = Column(String, ForeignKey("workflow_runs.workflow_run_id", ondelete="CASCADE"), nullable=False, index=True)
     tag = Column(String, nullable=False)
     xpath = Column(Text, nullable=False)
     input_type = Column(String, nullable=True)
@@ -729,7 +729,6 @@ class TaskRunModel(Base):
     __table_args__ = (
         Index("task_run_org_url_index", "organization_id", "url_hash", "cached"),
         Index("task_run_org_run_id_index", "organization_id", "run_id"),
-        Index("task_run_workflow_run_id_index", "workflow_run_id"),
     )
 
     task_run_id = Column(String, primary_key=True, default=generate_task_run_id)
