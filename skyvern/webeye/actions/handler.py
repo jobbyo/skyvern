@@ -1139,6 +1139,7 @@ async def handle_input_text_action(
     dom_information = skyvern_element.get_dom_information(action_text=action.text)
     await DATABASE.insert_dom_information_for_task(
         task_id=task.task_id,
+        workflow_run_id=task.workflow_run_id,
         tag=dom_information.tag,
         xpath=dom_information.xpath,
         input_type=dom_information.input_type,
@@ -1484,6 +1485,7 @@ async def handle_upload_file_action(
     dom_information =  skyvern_element.get_dom_information(action_text=action.file_url)
     await DATABASE.insert_dom_information_for_task(
         task_id=task.task_id,
+        workflow_run_id=task.workflow_run_id,
         tag=dom_information.tag,
         xpath=dom_information.xpath,
         input_type=dom_information.input_type,
@@ -1605,6 +1607,7 @@ async def handle_select_option_action(
     LOG.info(f"skyvern_element select option: {dom_information}")
     await DATABASE.insert_dom_information_for_task(
         task_id=task.task_id,
+        workflow_run_id=task.workflow_run_id,
         tag=dom_information.tag,
         xpath=dom_information.xpath,
         input_type=dom_information.input_type,
@@ -1962,6 +1965,7 @@ async def handle_checkbox_action(
     dom_information =  skyvern_element.get_dom_information(action_text='checked' if action.is_checked else 'unchecked')
     await DATABASE.insert_dom_information_for_task(
         task_id=task.task_id,
+        workflow_run_id=task.workflow_run_id,
         tag=dom_information.tag,
         xpath=dom_information.xpath,
         input_type=dom_information.input_type,

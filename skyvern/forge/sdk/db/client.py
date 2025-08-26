@@ -998,6 +998,7 @@ class AgentDB:
     async def insert_dom_information_for_task(
         self,
         task_id: str,
+        workflow_run_id: str,
         tag: str,
         xpath: str,
         input_type: str | None = None,
@@ -1009,6 +1010,7 @@ class AgentDB:
             async with self.Session() as session:
                 dom_information = TaskDomInformationModel(
                     task_id=task_id,
+                    workflow_run_id=workflow_run_id,
                     tag=tag,
                     xpath=xpath,
                     input_type=input_type,

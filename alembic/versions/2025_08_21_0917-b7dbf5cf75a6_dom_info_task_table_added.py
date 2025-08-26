@@ -23,6 +23,7 @@ def upgrade() -> None:
     op.create_table('task_dom_information',
     sa.Column('dom_id', sa.INTEGER(), autoincrement=True, nullable=False),
     sa.Column('task_id', sa.VARCHAR(), autoincrement=False, nullable=False),
+    sa.Column('workflow_run_id', sa.VARCHAR(), autoincrement=False, nullable=False),
     sa.Column('tag', sa.VARCHAR(), autoincrement=False, nullable=False),
     sa.Column('xpath', sa.TEXT(), autoincrement=False, nullable=False),
     sa.Column('input_type', sa.VARCHAR(), autoincrement=False, nullable=True),
@@ -31,6 +32,7 @@ def upgrade() -> None:
     sa.Column('value', sa.TEXT(), autoincrement=False, nullable=True),
     sa.Column('created_at', postgresql.TIMESTAMP(), server_default=sa.text('now()'), autoincrement=False, nullable=False),
     sa.ForeignKeyConstraint(['task_id'], ['tasks.task_id'], name=op.f('fk_task_dom_information_task'), ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['workflow_run_id'], ['workflow_runs.workflow_run_id'], name=op.f('fk_task_dom_information_workflow_run'), ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('dom_id', name=op.f('task_dom_information_pkey'))
     )
     op.create_index(op.f('idx_task_dom_task_id'), 'task_dom_information', ['task_id'], unique=False)

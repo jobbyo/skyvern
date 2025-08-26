@@ -183,6 +183,7 @@ class TaskDomInformationModel(Base):
 
     dom_id = Column(Integer, primary_key=True, autoincrement=True)
     task_id = Column(String, ForeignKey("tasks.task_id", ondelete="CASCADE"), nullable=False)
+    workflow_run_id = Column(String, ForeignKey("workflow_runs.workflow_run_id", ondelete="CASCADE"), nullable=False)
     tag = Column(String, nullable=False)
     xpath = Column(Text, nullable=False)
     input_type = Column(String, nullable=True)
