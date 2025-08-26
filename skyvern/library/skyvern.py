@@ -5,6 +5,7 @@ from typing import Any
 
 import httpx
 from dotenv import load_dotenv
+import structlog
 
 from skyvern.client import AsyncSkyvern
 from skyvern.client.core.pydantic_utilities import parse_obj_as
@@ -28,6 +29,7 @@ from skyvern.schemas.runs import CUA_ENGINES, ProxyLocation, RunEngine, RunStatu
 from skyvern.services import run_service, task_v1_service, task_v2_service
 from skyvern.utils import migrate_db
 
+LOG = structlog.get_logger()
 
 class Skyvern(AsyncSkyvern):
     def __init__(
@@ -122,7 +124,7 @@ class Skyvern(AsyncSkyvern):
         return dom_information
     
     async def get_dom_information_by_user_and_job(self, user_email: str, job_link: str) -> str:
-        print("skyvern get_dom_information_by_user_and_job", user_email, job_link)
+        LOG.info("skyvern get_dom_information_by_user_and_job", user_email=user_email, job_link=job_link)
         dom_information = await app.DATABASE.get_dom_information_by_user_and_job(user_email, job_link)
         return dom_information
 
