@@ -286,6 +286,7 @@ async def initialize_task_v2(
                 url=url,
                 url_hash=generate_url_hash(url),
                 user_email=user_email,
+                workflow_run_id=task_v2.workflow_run_id,
             )
     except Exception:
         LOG.warning("Failed to update task 2.0", exc_info=True)

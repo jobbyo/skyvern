@@ -100,6 +100,7 @@ async def run_task(
         url=task.url,
         url_hash=url_hash,
         user_email=task.user_email,
+        workflow_run_id=created_task.workflow_run_id,
     )
     if x_max_steps_override:
         LOG.info(

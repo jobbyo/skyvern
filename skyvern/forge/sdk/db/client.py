@@ -3252,6 +3252,7 @@ class AgentDB:
         url: str | None = None,
         url_hash: str | None = None,
         user_email: str | None = None,
+        workflow_run_id: str | None = None,
     ) -> Run:
         async with self.Session() as session:
             task_run = TaskRunModel(
@@ -3262,6 +3263,7 @@ class AgentDB:
                 url=url,
                 url_hash=url_hash,
                 user_email=user_email,
+                workflow_run_id=workflow_run_id,
             )
             session.add(task_run)
             await session.commit()

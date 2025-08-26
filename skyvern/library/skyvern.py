@@ -361,6 +361,7 @@ class Skyvern(AsyncSkyvern):
                     url=task_request.url,
                     url_hash=url_hash,
                     user_email=user_email,
+                    workflow_run_id=created_task.workflow_run_id,
                 )
                 try:
                     await self._run_task(organization, created_task, engine=engine)
