@@ -92,8 +92,6 @@ from skyvern.schemas.workflows import WorkflowRequest
 from skyvern.services import block_service, run_service, task_v1_service, task_v2_service, workflow_service
 from skyvern.webeye.actions.actions import Action
 
-LOG = structlog.get_logger()
-
 
 class AISuggestionType(str, Enum):
     DATA_SCHEMA = "data_schema"
@@ -123,7 +121,6 @@ async def get_dom_information_by_user_and_job(
     body = await request.json()
     user_email = body.get("user_email")
     job_link = body.get("job_link")
-    LOG.info("agent protocol get_dom_information_by_user_and_job", user_email=user_email, job_link=job_link)
     
     if not user_email or not job_link:
         raise HTTPException(

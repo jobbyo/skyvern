@@ -25,7 +25,7 @@ from skyvern.forge.sdk.schemas.tasks import CreateTaskResponse, Task, TaskReques
 from skyvern.forge.sdk.services.org_auth_token_service import API_KEY_LIFETIME
 from skyvern.forge.sdk.workflow.models.workflow import WorkflowRunStatus
 from skyvern.library.constants import DEFAULT_AGENT_HEARTBEAT_INTERVAL, DEFAULT_AGENT_TIMEOUT
-from skyvern.schemas.runs import CUA_ENGINES, ProxyLocation, RunEngine, RunStatus, RunType
+from skyvern.schemas.runs import CUA_ENGINES, ProxyLocation, RunEngine, RunStatus, RunType, TaskDomInformation
 from skyvern.services import run_service, task_v1_service, task_v2_service
 from skyvern.utils import migrate_db
 
@@ -123,8 +123,7 @@ class Skyvern(AsyncSkyvern):
         dom_information =  await app.DATABASE.get_dom_information_by_task_id(task.task_id)
         return dom_information
     
-    async def get_dom_information_by_user_and_job(self, user_email: str, job_link: str) -> str:
-        LOG.info("skyvern get_dom_information_by_user_and_job", user_email=user_email, job_link=job_link)
+    async def get_dom_information_by_user_and_job(self, user_email: str, job_link: str) -> list[TaskDomInformation]:
         dom_information = await app.DATABASE.get_dom_information_by_user_and_job(user_email, job_link)
         return dom_information
 

@@ -54,6 +54,7 @@ from skyvern.forge.sdk.db.utils import (
     convert_to_output_parameter,
     convert_to_step,
     convert_to_task,
+    convert_to_task_dom_information,
     convert_to_workflow,
     convert_to_workflow_parameter,
     convert_to_workflow_run,
@@ -95,7 +96,7 @@ from skyvern.forge.sdk.workflow.models.workflow import (
     WorkflowRunStatus,
     WorkflowStatus,
 )
-from skyvern.schemas.runs import ProxyLocation, RunEngine, RunType
+from skyvern.schemas.runs import ProxyLocation, RunEngine, RunType, TaskDomInformation
 from skyvern.webeye.actions.actions import Action
 from skyvern.webeye.actions.models import AgentStepOutput
 
@@ -275,7 +276,7 @@ class AgentDB:
             LOG.error("SQLAlchemyError", exc_info=True)
             raise
 
-    async def get_dom_information_by_user_and_job(self, user_email: str, url: str):
+    async def get_dom_information_by_user_and_job(self, user_email: str, url: str) -> list[TaskDomInformation]:
         """
         Get DOM information by joining task_runs, task_dom_information, and workflow_runs tables
         based on user_email, url, and workflow status.
@@ -291,17 +292,10 @@ class AgentDB:
             async with self.Session() as session:
                 # Join task_runs, task_dom_information, and workflow_runs on workflow_run_id
                 # Filter by user_email, url, and workflow status
-                # Select only the specific fields needed
-                dom_information = (
-                    await session.execute(
-                        select(
-                            TaskDomInformationModel.tag,
-                            TaskDomInformationModel.xpath,
-                            TaskDomInformationModel.input_type,
-                            TaskDomInformationModel.is_mandatory,
-                            TaskDomInformationModel.placeholder,
-                            TaskDomInformationModel.value
-                        )
+                # Select the entire TaskDomInformationModel and convert to TaskDomInformation schema
+                dom_information_models = (
+                    await session.scalars(
+                        select(TaskDomInformationModel)
                         .join(TaskRunModel, TaskDomInformationModel.workflow_run_id == TaskRunModel.workflow_run_id)
                         .join(WorkflowRunModel, TaskDomInformationModel.workflow_run_id == WorkflowRunModel.workflow_run_id)
                         .where(
@@ -312,8 +306,10 @@ class AgentDB:
                             )
                         )
                     )
-                )
-                return dom_information.all()
+                ).all()
+                
+                # Convert SQLAlchemy models to Pydantic schemas
+                return [convert_to_task_dom_information(model) for model in dom_information_models]
         except SQLAlchemyError:
             LOG.error("SQLAlchemyError", exc_info=True)
             raise
