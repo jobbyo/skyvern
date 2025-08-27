@@ -5,7 +5,6 @@ from typing import Any
 
 import httpx
 from dotenv import load_dotenv
-import structlog
 
 from skyvern.client import AsyncSkyvern
 from skyvern.client.core.pydantic_utilities import parse_obj_as
@@ -25,11 +24,10 @@ from skyvern.forge.sdk.schemas.tasks import CreateTaskResponse, Task, TaskReques
 from skyvern.forge.sdk.services.org_auth_token_service import API_KEY_LIFETIME
 from skyvern.forge.sdk.workflow.models.workflow import WorkflowRunStatus
 from skyvern.library.constants import DEFAULT_AGENT_HEARTBEAT_INTERVAL, DEFAULT_AGENT_TIMEOUT
-from skyvern.schemas.runs import CUA_ENGINES, ProxyLocation, RunEngine, RunStatus, RunType, TaskDomInformation
+from skyvern.schemas.runs import CUA_ENGINES, ProxyLocation, RunEngine, RunStatus, RunType
 from skyvern.services import run_service, task_v1_service, task_v2_service
 from skyvern.utils import migrate_db
 
-LOG = structlog.get_logger()
 
 class Skyvern(AsyncSkyvern):
     def __init__(
