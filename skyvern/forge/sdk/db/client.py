@@ -287,12 +287,31 @@ class AgentDB:
         JOIN public.task_dom_information ON task_runs.workflow_run_id = task_dom_information.workflow_run_id
         JOIN public.workflow_runs ON task_runs.workflow_run_id = workflow_runs.workflow_run_id
         WHERE user_email = 'user_email' AND url = 'url' AND workflow_runs.status = 'completed'
+        AND workflow_runs.finished_at = (
+            SELECT MAX(finished_at) 
+            FROM public.workflow_runs wr2
+            JOIN public.task_runs tr2 ON wr2.workflow_run_id = tr2.workflow_run_id
+            WHERE tr2.user_email = 'user_email' AND tr2.url = 'url' AND wr2.status = 'completed'
+        )
         """
         try:
             async with self.Session() as session:
-                # Join task_runs, task_dom_information, and workflow_runs on workflow_run_id
-                # Filter by user_email, url, and workflow status
-                # Select the entire TaskDomInformationModel and convert to TaskDomInformation schema
+                # First, find the latest finished_at timestamp for the given user_email and url
+                latest_finished_at_subquery = (
+                    select(func.max(WorkflowRunModel.finished_at))
+                    .select_from(WorkflowRunModel)
+                    .join(TaskRunModel, WorkflowRunModel.workflow_run_id == TaskRunModel.workflow_run_id)
+                    .where(
+                        and_(
+                            TaskRunModel.user_email == user_email,
+                            TaskRunModel.url == url,
+                            WorkflowRunModel.status == "completed",
+                            WorkflowRunModel.finished_at.isnot(None)
+                        )
+                    )
+                )
+                
+                # Then, get DOM information only from the latest workflow run
                 dom_information_models = (
                     await session.scalars(
                         select(TaskDomInformationModel)
@@ -302,7 +321,8 @@ class AgentDB:
                             and_(
                                 TaskRunModel.user_email == user_email,
                                 TaskRunModel.url == url,
-                                WorkflowRunModel.status == "completed"
+                                WorkflowRunModel.status == "completed",
+                                WorkflowRunModel.finished_at == latest_finished_at_subquery.scalar_subquery()
                             )
                         )
                     )
