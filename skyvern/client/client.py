@@ -2030,9 +2030,9 @@ class AsyncSkyvern:
             },
         )
         return typing.cast(
-            TaskDomInformation,
+            list[TaskDomInformation],
             parse_obj_as(
-                type_=TaskDomInformation,
+                type_=typing.List[TaskDomInformation],
                 object_=_response.json(),
             ),
         )

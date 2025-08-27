@@ -123,10 +123,6 @@ class Skyvern(AsyncSkyvern):
         dom_information =  await app.DATABASE.get_dom_information_by_task_id(task.task_id)
         return dom_information
     
-    # async def get_dom_information_by_user_and_job(self, user_email: str, job_link: str) -> list[TaskDomInformation]:
-    #     dom_information = await app.DATABASE.get_dom_information_by_user_and_job(user_email, job_link)
-    #     return dom_information
-
     async def _run_task(
         self,
         organization: Organization,
