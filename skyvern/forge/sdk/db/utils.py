@@ -16,6 +16,7 @@ from skyvern.forge.sdk.db.models import (
     OrganizationModel,
     OutputParameterModel,
     StepModel,
+    TaskDomInformationModel,
     TaskModel,
     WorkflowModel,
     WorkflowParameterModel,
@@ -46,7 +47,7 @@ from skyvern.forge.sdk.workflow.models.workflow import (
     WorkflowRunStatus,
     WorkflowStatus,
 )
-from skyvern.schemas.runs import ProxyLocation
+from skyvern.schemas.runs import ProxyLocation, TaskDomInformation
 from skyvern.webeye.actions.actions import (
     Action,
     ActionType,
@@ -447,6 +448,15 @@ def convert_to_workflow_run_parameter(
         created_at=workflow_run_parameter_model.created_at,
     )
 
+def convert_to_task_dom_information(task_dom_information_model: TaskDomInformationModel) -> TaskDomInformation:
+    return TaskDomInformation(
+        tag=task_dom_information_model.tag,
+        xpath=task_dom_information_model.xpath,
+        input_type=task_dom_information_model.input_type,
+        is_mandatory=task_dom_information_model.is_mandatory,
+        placeholder=task_dom_information_model.placeholder,
+        value=task_dom_information_model.value,
+    )
 
 def convert_to_workflow_run_block(
     workflow_run_block_model: WorkflowRunBlockModel,

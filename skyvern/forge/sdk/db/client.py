@@ -54,6 +54,7 @@ from skyvern.forge.sdk.db.utils import (
     convert_to_output_parameter,
     convert_to_step,
     convert_to_task,
+    convert_to_task_dom_information,
     convert_to_workflow,
     convert_to_workflow_parameter,
     convert_to_workflow_run,
@@ -95,7 +96,7 @@ from skyvern.forge.sdk.workflow.models.workflow import (
     WorkflowRunStatus,
     WorkflowStatus,
 )
-from skyvern.schemas.runs import ProxyLocation, RunEngine, RunType
+from skyvern.schemas.runs import ProxyLocation, RunEngine, RunType, TaskDomInformation
 from skyvern.webeye.actions.actions import Action
 from skyvern.webeye.actions.models import AgentStepOutput
 
@@ -274,7 +275,76 @@ class AgentDB:
         except SQLAlchemyError:
             LOG.error("SQLAlchemyError", exc_info=True)
             raise
+
+    async def get_dom_information_by_user_and_job(self, user_email: str, url: str) -> list[TaskDomInformation]:
+        """
+        Get DOM information by joining task_runs, task_dom_information, and workflow_runs tables
+        based on user_email, url, and workflow status.
         
+        This implements the SQL query:
+        SELECT tag, xpath, input_type, is_mandatory, placeholder, value 
+        FROM public.task_runs 
+        JOIN public.task_dom_information ON task_runs.workflow_run_id = task_dom_information.workflow_run_id
+        JOIN public.workflow_runs ON task_runs.workflow_run_id = workflow_runs.workflow_run_id
+        WHERE user_email = 'user_email' AND url = 'url' AND workflow_runs.status = 'completed'
+        AND workflow_runs.finished_at = (
+            SELECT MAX(finished_at) 
+            FROM public.workflow_runs wr2
+            JOIN public.task_runs tr2 ON wr2.workflow_run_id = tr2.workflow_run_id
+            WHERE tr2.user_email = 'user_email' AND tr2.url = 'url' AND wr2.status = 'completed'
+        )
+        """
+        try:
+            async with self.Session() as session:
+                # First, find the latest finished_at timestamp for the given user_email and url
+                latest_finished_at_subquery = (
+                    select(func.max(WorkflowRunModel.finished_at))
+                    .select_from(WorkflowRunModel)
+                    .join(TaskRunModel, WorkflowRunModel.workflow_run_id == TaskRunModel.workflow_run_id)
+                    .where(
+                        and_(
+                            TaskRunModel.user_email == user_email,
+                            TaskRunModel.url == url,
+                            WorkflowRunModel.status == "completed",
+                            WorkflowRunModel.finished_at.isnot(None)
+                        )
+                    )
+                )
+                
+                # Then, get DOM information only from the latest workflow run
+                dom_information_models = (
+                    await session.execute(
+                        select(
+                            TaskDomInformationModel.tag,
+                            TaskDomInformationModel.xpath,
+                            TaskDomInformationModel.input_type,
+                            TaskDomInformationModel.is_mandatory,
+                            TaskDomInformationModel.placeholder,
+                            TaskDomInformationModel.value
+                        )
+                        .distinct()
+                        .join(TaskRunModel, TaskDomInformationModel.workflow_run_id == TaskRunModel.workflow_run_id)
+                        .join(WorkflowRunModel, TaskDomInformationModel.workflow_run_id == WorkflowRunModel.workflow_run_id)
+                        .where(
+                            and_(
+                                TaskRunModel.user_email == user_email,
+                                TaskRunModel.url == url,
+                                WorkflowRunModel.status == "completed",
+                                WorkflowRunModel.finished_at == latest_finished_at_subquery.scalar_subquery()
+                            )
+                        )
+                    )
+                ).all()
+                
+                # Convert the result rows to TaskDomInformation objects
+                return [convert_to_task_dom_information(model) for model in dom_information_models]
+        except SQLAlchemyError:
+            LOG.error("SQLAlchemyError", exc_info=True)
+            raise
+        except Exception:
+            LOG.error("UnexpectedError", exc_info=True)
+            raise
+
     async def get_task(self, task_id: str, organization_id: str | None = None) -> Task | None:
         """Get a task by its id"""
         try:

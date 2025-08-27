@@ -120,7 +120,7 @@ class Skyvern(AsyncSkyvern):
             raise Exception("Task not found")
         dom_information =  await app.DATABASE.get_dom_information_by_task_id(task.task_id)
         return dom_information
-
+    
     async def _run_task(
         self,
         organization: Organization,
