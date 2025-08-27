@@ -313,8 +313,16 @@ class AgentDB:
                 
                 # Then, get DOM information only from the latest workflow run
                 dom_information_models = (
-                    await session.scalars(
-                        select(TaskDomInformationModel)
+                    await session.execute(
+                        select(
+                            TaskDomInformationModel.tag,
+                            TaskDomInformationModel.xpath,
+                            TaskDomInformationModel.input_type,
+                            TaskDomInformationModel.is_mandatory,
+                            TaskDomInformationModel.placeholder,
+                            TaskDomInformationModel.value
+                        )
+                        .distinct()
                         .join(TaskRunModel, TaskDomInformationModel.workflow_run_id == TaskRunModel.workflow_run_id)
                         .join(WorkflowRunModel, TaskDomInformationModel.workflow_run_id == WorkflowRunModel.workflow_run_id)
                         .where(
@@ -328,7 +336,7 @@ class AgentDB:
                     )
                 ).all()
                 
-                # Convert SQLAlchemy models to Pydantic schemas
+                # Convert the result rows to TaskDomInformation objects
                 return [convert_to_task_dom_information(model) for model in dom_information_models]
         except SQLAlchemyError:
             LOG.error("SQLAlchemyError", exc_info=True)
