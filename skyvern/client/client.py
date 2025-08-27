@@ -2029,13 +2029,13 @@ class AsyncSkyvern:
                 "job_link": job_link,
             },
         )
-        return typing.cast(
-            list[TaskDomInformation],
+        return [typing.cast(
+            TaskDomInformation,
             parse_obj_as(
-                type_=typing.List[TaskDomInformation],
-                object_=_response.json(),
+                type_=TaskDomInformation,
+                object_=entry,
             ),
-        )
+        ) for entry in _response.json()]
 
     async def run_workflow(
         self,
