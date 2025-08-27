@@ -92,6 +92,7 @@ from skyvern.schemas.workflows import WorkflowRequest
 from skyvern.services import block_service, run_service, task_v1_service, task_v2_service, workflow_service
 from skyvern.webeye.actions.actions import Action
 
+LOG = structlog.get_logger()
 
 class AISuggestionType(str, Enum):
     DATA_SCHEMA = "data_schema"
