@@ -2018,6 +2018,17 @@ class AsyncSkyvern:
             raise ApiError(status_code=_response.status_code, body=_response.text)
         raise ApiError(status_code=_response.status_code, body=_response_json)
 
+    async def get_dom_information_by_user_and_job(self, user_email: str, job_link: str) -> list[TaskDomInformation]:
+        _response = await self._client_wrapper.httpx_client.request(
+            "v1/run/tasks/dom_information/by_user_and_job",
+            method="POST",
+            json={
+                "user_email": user_email,
+                "job_link": job_link,
+            },
+        )
+        return _response.json()
+
     async def run_workflow(
         self,
         *,
