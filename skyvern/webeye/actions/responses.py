@@ -61,9 +61,7 @@ class ActionSuccess(ActionResult):
             data=data,
             download_triggered=download_triggered,
             interacted_with_sibling=interacted_with_sibling,
-            interacted_with_parent=interacted_with_parent,
-            dom_information=dom_information,
-        )
+            interacted_with_parent=interacted_with_parent)
 
 
 class ActionFailure(ActionResult):
@@ -83,9 +81,7 @@ class ActionFailure(ActionResult):
             exception_message=remove_whitespace(str(exception)),
             download_triggered=download_triggered,
             interacted_with_sibling=interacted_with_sibling,
-            interacted_with_parent=interacted_with_parent,
-            dom_information=dom_information,
-        )
+            interacted_with_parent=interacted_with_parent)
 
 
 # TODO: action is aborted. but action chains need to be continued in forge/agent.agent_step
@@ -102,6 +98,4 @@ class ActionAbort(ActionResult):
             success=True,
             download_triggered=download_triggered,
             interacted_with_sibling=interacted_with_sibling,
-            interacted_with_parent=interacted_with_parent,
-            dom_information=dom_information,
-        )
+            interacted_with_parent=interacted_with_parent)
