@@ -78,6 +78,7 @@ lark = "^1.2.2"
 libcst = "^1.8.2"
 curlparser = "^0.1.0"
 lmnr = {extras = ["all"], version = "^0.6.16"}
+2captcha-python = "^1.5.1"
 
 [tool.poetry.group.dev.dependencies]
 isort = "^5.13.2"
