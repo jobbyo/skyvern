@@ -615,30 +615,43 @@ async def handle_solve_captcha_action(
                     return [ActionSuccess()]
 
         # --- hCaptcha ---
-        hcaptcha_iframe = await page.query_selector("iframe[src*='hcaptcha']")
-        if hcaptcha_iframe:
-            LOG.info("Detected hCaptcha, sending to 2Captcha")
+        hcaptcha_div = await page.query_selector("[data-sitekey]")
+        if hcaptcha_div:
+            LOG.info("Detected hCaptcha container, extracting sitekey")
+            site_key = await hcaptcha_div.get_attribute("data-sitekey")
+        else:
+            hcaptcha_iframe = await page.query_selector("iframe[src*='hcaptcha']")
+            site_key = None
+            if hcaptcha_iframe:
+                LOG.info("Detected hCaptcha iframe, trying to extract sitekey")
+                site_key = await page.evaluate(
+                    """() => {
+                        const iframe = document.querySelector("iframe[src*='hcaptcha']");
+                        if (!iframe) return null;
+                        const src = iframe.getAttribute("src");
+                        const params = new URL(src).searchParams;
+                        return params.get("sitekey");
+                    }"""
+                )
 
-            site_key = await page.evaluate(
-                """() => {
-                    const iframe = document.querySelector("iframe[src*='hcaptcha']");
-                    if (!iframe) return null;
-                    const src = iframe.getAttribute("src");
-                    const params = new URL(src).searchParams;
-                    return params.get("sitekey");
-                }"""
-            )
+        if site_key:
+            token = await solve_hcaptcha_with_2captcha(site_key, url)
+            if token:
+                await page.evaluate(
+                    f"""() => {{
+                        let resp = document.querySelector("[name='h-captcha-response']");
+                        if (!resp) {{
+                            resp = document.createElement("textarea");
+                            resp.name = "h-captcha-response";
+                            resp.style.display = "none";
+                            document.body.appendChild(resp);
+                        }}
+                        resp.value = "{token}";
+                    }}"""
+                )
+                LOG.info("Successfully solved hCaptcha with 2Captcha")
+                return [ActionSuccess()]
 
-            if site_key:
-                token = await solve_hcaptcha_with_2captcha(site_key, url)
-                if token:
-                    await page.evaluate(
-                        f"""() => {{
-                            document.querySelector("[name='h-captcha-response']").value = "{token}";
-                        }}"""
-                    )
-                    LOG.info("Successfully solved hCaptcha with 2Captcha")
-                    return [ActionSuccess()]
 
         # --- Image captcha ---
         captcha_img = await page.query_selector("img[src*='captcha']")
