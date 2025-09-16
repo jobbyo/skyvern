@@ -38,6 +38,7 @@ CREDENTIAL_ONEPASSWORD_PARAMETER_PREFIX = "opp"
 CREDENTIAL_PARAMETER_PREFIX = "cp"
 CREDENTIAL_PREFIX = "cred"
 ORGANIZATION_BITWARDEN_COLLECTION_PREFIX = "obc"
+MANUAL_TASK_DOM_INFORMATION_PREFIX = "mtdi"
 TASK_V2_ID = "tsk_v2"
 THOUGHT_ID = "ot"
 ORGANIZATION_AUTH_TOKEN_PREFIX = "oat"
@@ -195,6 +196,11 @@ def generate_credential_id() -> str:
 def generate_organization_bitwarden_collection_id() -> str:
     int_id = generate_id()
     return f"{ORGANIZATION_BITWARDEN_COLLECTION_PREFIX}_{int_id}"
+
+
+def generate_manual_task_dom_information_id() -> str:
+    int_id = generate_id()
+    return f"{MANUAL_TASK_DOM_INFORMATION_PREFIX}_{int_id}"
 
 
 def generate_id() -> int:

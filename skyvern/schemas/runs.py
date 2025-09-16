@@ -416,6 +416,15 @@ class TaskDomInformation(BaseModel):
     placeholder: str | None = Field(description="The placeholder of the dom information")
     value: str | None = Field(description="The value of the dom information")
 
+class ManualTaskDomInformation(BaseModel):
+    tag: str = Field(description="The tag of the dom information")
+    input_type: str | None = Field(description="The input type of the dom information")
+    is_mandatory: bool = Field(description="Whether the dom information is mandatory")
+    placeholder: str | None = Field(description="The placeholder of the dom information")
+    value: str | None = Field(description="The value of the dom information")
+    user_email: str | None = Field(description="The user email of the dom information")
+    job_link: str | None = Field(description="The job link of the dom information")
+
 class TaskRunResponse(BaseRunResponse):
     run_type: Literal[RunType.task_v1, RunType.task_v2, RunType.openai_cua, RunType.anthropic_cua, RunType.ui_tars] = (
         Field(description="Types of a task run - task_v1, task_v2, openai_cua, anthropic_cua, ui_tars")

@@ -85,6 +85,7 @@ from skyvern.schemas.runs import (
     TaskRunRequest,
     TaskRunResponse,
     TaskDomInformation,
+    ManualTaskDomInformation,
     WorkflowRunRequest,
     WorkflowRunResponse,
 )
@@ -130,6 +131,42 @@ async def get_dom_information_by_user_and_job(
         )
     
     return await app.DATABASE.get_dom_information_by_user_and_job(user_email, job_link)
+
+
+@base_router.post(
+    "/manual_dom_information/",
+    tags=["Agent"],
+    description="Create manual DOM information for a task",
+    summary="Create manual DOM information for a task",
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_manual_dom_information(
+    request: Request,
+) -> None:
+    """
+    Create a new manual DOM information record.
+    
+    This endpoint allows you to manually create DOM information records that can be used
+    as fallback data when automated workflow runs don't have the required DOM information.
+    
+    The record will be associated with a user email and job link for easy retrieval.
+    """
+    try:
+        await app.DATABASE.create_manual_dom_information(
+            tag=request.tag,
+            input_type=request.input_type,
+            is_mandatory=request.is_mandatory,
+            placeholder=request.placeholder,
+            value=request.value,
+            user_email=request.user_email,
+            job_link=request.job_link,
+        )
+    except Exception as e:
+        LOG.error("Failed to create manual DOM information", exc_info=True, error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create manual DOM information: {str(e)}"
+        )
 
 @base_router.post(
     "/run/tasks",

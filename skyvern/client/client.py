@@ -2036,6 +2036,21 @@ class AsyncSkyvern:
                 object_=entry,
             ),
         ) for entry in _response.json()]
+    
+    async def create_manual_dom_information(self, user_email: str, job_link: str, tag: str, input_type: str, is_mandatory: bool, placeholder: str, value: str) -> None:
+        await self._client_wrapper.httpx_client.request(
+            "v1/manual_dom_information",
+            method="POST",
+            json={
+                "user_email": user_email,
+                "job_link": job_link,
+                "tag": tag,
+                "input_type": input_type,
+                "is_mandatory": is_mandatory,
+                "placeholder": placeholder,
+                "value": value,
+            },
+        )
 
     async def run_workflow(
         self,

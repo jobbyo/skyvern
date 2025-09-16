@@ -12,6 +12,7 @@ from skyvern.forge.sdk.db.models import (
     AWSSecretParameterModel,
     BitwardenLoginCredentialParameterModel,
     BitwardenSensitiveInformationParameterModel,
+    ManualTaskDomInformationModel,
     OrganizationAuthTokenModel,
     OrganizationModel,
     OutputParameterModel,
@@ -456,6 +457,18 @@ def convert_to_task_dom_information(task_dom_information_model: TaskDomInformati
         is_mandatory=task_dom_information_model.is_mandatory,
         placeholder=task_dom_information_model.placeholder,
         value=task_dom_information_model.value,
+    )
+
+
+def convert_manual_to_task_dom_information(manual_dom_information_model: ManualTaskDomInformationModel) -> TaskDomInformation:
+    """Convert ManualTaskDomInformationModel to TaskDomInformation, using placeholder as xpath fallback"""
+    return TaskDomInformation(
+        tag=manual_dom_information_model.tag,
+        xpath= "",  # Use "" as xpath fallback since manual table doesn't have xpath
+        input_type=manual_dom_information_model.input_type,
+        is_mandatory=manual_dom_information_model.is_mandatory,
+        placeholder=manual_dom_information_model.placeholder,
+        value=manual_dom_information_model.value,
     )
 
 def convert_to_workflow_run_block(
