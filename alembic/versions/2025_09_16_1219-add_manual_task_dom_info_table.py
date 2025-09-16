@@ -1,6 +1,6 @@
-"""add manual_task_dom_information_table
+"""add manual_task_dom_info_table
 
-Revision ID: add_manual_task_dom_information_table
+Revision ID: add_manual_task_dom_info_table
 Revises: add_exta_info_to_task_runs
 Create Date: 2025-09-16 12:19:00.000000+00:00
 
@@ -11,7 +11,7 @@ from alembic import op
 import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
-revision: str = 'add_manual_task_dom_information_table'
+revision: str = 'add_manual_task_dom_info_table'
 down_revision: Union[str, None] = 'add_exta_info_to_task_runs'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
