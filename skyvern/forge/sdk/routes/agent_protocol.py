@@ -152,14 +152,15 @@ async def create_manual_dom_information(
     The record will be associated with a user email and job link for easy retrieval.
     """
     try:
+        body = await request.json()
         await app.DATABASE.create_manual_dom_information(
-            tag=request.tag,
-            input_type=request.input_type,
-            is_mandatory=request.is_mandatory,
-            placeholder=request.placeholder,
-            value=request.value,
-            user_email=request.user_email,
-            job_link=request.job_link,
+            tag=body.get("tag"),
+            input_type=body.get("input_type"),
+            is_mandatory=body.get("is_mandatory"),
+            placeholder=body.get("placeholder"),
+            value=body.get("value"),
+            user_email=body.get("user_email"),
+            job_link=body.get("job_link"),
         )
     except Exception as e:
         LOG.error("Failed to create manual DOM information", exc_info=True, error=str(e))
