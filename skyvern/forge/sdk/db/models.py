@@ -32,6 +32,7 @@ from skyvern.forge.sdk.db.id import (
     generate_bitwarden_sensitive_information_parameter_id,
     generate_credential_id,
     generate_credential_parameter_id,
+    generate_manual_task_dom_information_id,
     generate_onepassword_credential_parameter_id,
     generate_org_id,
     generate_organization_auth_token_id,
@@ -196,6 +197,33 @@ class TaskDomInformationModel(Base):
         Index("idx_task_dom_task_id", "task_id"),
         Index("idx_task_dom_workflow_run_id", "workflow_run_id"),
     )
+
+
+class ManualTaskDomInformationModel(Base):
+    __tablename__ = "manual_task_dom_information"
+
+    id = Column(String, primary_key=True, default=generate_manual_task_dom_information_id)
+    tag = Column(String, nullable=False)
+    input_type = Column(String, nullable=True)
+    is_mandatory = Column(Boolean, default=False, nullable=False)
+    placeholder = Column(String, nullable=True)
+    value = Column(Text, nullable=True)
+    user_email = Column(String, nullable=True)
+    job_link = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    modified_at = Column(
+        DateTime,
+        default=datetime.datetime.utcnow,
+        onupdate=datetime.datetime.utcnow,
+        nullable=False,
+    )
+
+    __table_args__ = (
+        Index("idx_manual_task_dom_user_email", "user_email"),
+        Index("idx_manual_task_dom_job_link", "job_link"),
+    )
+
+
 class ArtifactModel(Base):
     __tablename__ = "artifacts"
     __table_args__ = (

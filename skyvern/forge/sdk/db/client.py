@@ -22,6 +22,7 @@ from skyvern.forge.sdk.db.models import (
     BitwardenSensitiveInformationParameterModel,
     CredentialModel,
     CredentialParameterModel,
+    ManualTaskDomInformationModel,
     OnePasswordCredentialParameterModel,
     OrganizationAuthTokenModel,
     OrganizationBitwardenCollectionModel,
@@ -55,6 +56,7 @@ from skyvern.forge.sdk.db.utils import (
     convert_to_step,
     convert_to_task,
     convert_to_task_dom_information,
+    convert_manual_to_task_dom_information,
     convert_to_workflow,
     convert_to_workflow_parameter,
     convert_to_workflow_run,
@@ -281,6 +283,9 @@ class AgentDB:
         Get DOM information by joining task_runs, task_dom_information, and workflow_runs tables
         based on user_email, url, and workflow status.
         
+        If no results are found from the automated workflow runs, fallback to manual_task_dom_information
+        table using user_email and job_link (url).
+        
         This implements the SQL query:
         SELECT tag, xpath, input_type, is_mandatory, placeholder, value 
         FROM public.task_runs 
@@ -293,6 +298,11 @@ class AgentDB:
             JOIN public.task_runs tr2 ON wr2.workflow_run_id = tr2.workflow_run_id
             WHERE tr2.user_email = 'user_email' AND tr2.url = 'url' AND wr2.status = 'completed'
         )
+        
+        If no results, fallback to:
+        SELECT tag, placeholder as xpath, input_type, is_mandatory, placeholder, value
+        FROM public.manual_task_dom_information
+        WHERE user_email = 'user_email' AND job_link = 'url'
         """
         try:
             async with self.Session() as session:
@@ -336,8 +346,28 @@ class AgentDB:
                     )
                 ).all()
                 
-                # Convert the result rows to TaskDomInformation objects
-                return [convert_to_task_dom_information(model) for model in dom_information_models]
+                # If we found results from the automated workflow, return them
+                if dom_information_models:
+                    return [convert_to_task_dom_information(model) for model in dom_information_models]
+                
+                # Fallback: Check manual_task_dom_information table
+                LOG.info(f"No automated DOM information found for user_email={user_email}, url={url}. Checking manual table.")
+                
+                manual_dom_information_models = (
+                    await session.execute(
+                        select(ManualTaskDomInformationModel)
+                        .where(
+                            and_(
+                                ManualTaskDomInformationModel.user_email == user_email,
+                                ManualTaskDomInformationModel.job_link == url
+                            )
+                        )
+                    )
+                ).scalars().all()
+                
+                # Convert manual table results to TaskDomInformation objects
+                return [convert_manual_to_task_dom_information(model) for model in manual_dom_information_models]
+                
         except SQLAlchemyError:
             LOG.error("SQLAlchemyError", exc_info=True)
             raise
@@ -1092,6 +1122,53 @@ class AgentDB:
                 await session.commit()
                 await session.refresh(dom_information)
                 return dom_information
+        except SQLAlchemyError:
+            LOG.error("SQLAlchemyError", exc_info=True)
+            raise
+        except Exception:
+            LOG.error("UnexpectedError", exc_info=True)
+            raise
+
+    async def create_manual_dom_information(
+        self,
+        tag: str,
+        input_type: str | None = None,
+        is_mandatory: bool = False,
+        placeholder: str | None = None,
+        value: str | None = None,
+        user_email: str | None = None,
+        job_link: str | None = None,
+    ) -> ManualTaskDomInformationModel:
+        """
+        Insert manual DOM information into the manual_task_dom_information table.
+        
+        Args:
+            tag: The tag of the DOM element (e.g., "input")
+            input_type: The input type (e.g., "text", "password", "email", etc.)
+            is_mandatory: Whether the field is mandatory (default: False)
+            placeholder: Placeholder text or associated label text
+            value: Actual value entered in the field if visible
+            user_email: User email associated with this DOM information
+            job_link: Job link/URL associated with this DOM information
+            
+        Returns:
+            ManualTaskDomInformationModel: The created manual DOM information record
+        """
+        try:
+            async with self.Session() as session:
+                manual_dom_information = ManualTaskDomInformationModel(
+                    tag=tag,
+                    input_type=input_type,
+                    is_mandatory=is_mandatory,
+                    placeholder=placeholder,
+                    value=value,
+                    user_email=user_email,
+                    job_link=job_link,
+                )
+                session.add(manual_dom_information)
+                await session.commit()
+                await session.refresh(manual_dom_information)
+                return manual_dom_information
         except SQLAlchemyError:
             LOG.error("SQLAlchemyError", exc_info=True)
             raise
