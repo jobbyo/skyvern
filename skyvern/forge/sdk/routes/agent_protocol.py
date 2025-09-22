@@ -155,6 +155,7 @@ async def create_manual_dom_information(
         body = await request.json()
         await app.DATABASE.create_manual_dom_information(
             tag=body.get("tag"),
+            xpath=body.get("xpath"),
             input_type=body.get("input_type"),
             is_mandatory=body.get("is_mandatory"),
             placeholder=body.get("placeholder"),

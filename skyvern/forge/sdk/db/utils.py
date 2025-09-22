@@ -461,10 +461,10 @@ def convert_to_task_dom_information(task_dom_information_model: TaskDomInformati
 
 
 def convert_manual_to_task_dom_information(manual_dom_information_model: ManualTaskDomInformationModel) -> TaskDomInformation:
-    """Convert ManualTaskDomInformationModel to TaskDomInformation, using placeholder as xpath fallback"""
+    """Convert ManualTaskDomInformationModel to TaskDomInformation"""
     return TaskDomInformation(
         tag=manual_dom_information_model.tag,
-        xpath= "",  # Use "" as xpath fallback since manual table doesn't have xpath
+        xpath=manual_dom_information_model.xpath or "",  # Use xpath field, fallback to empty string if None
         input_type=manual_dom_information_model.input_type,
         is_mandatory=manual_dom_information_model.is_mandatory,
         placeholder=manual_dom_information_model.placeholder,

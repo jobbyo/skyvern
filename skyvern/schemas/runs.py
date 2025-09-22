@@ -418,6 +418,7 @@ class TaskDomInformation(BaseModel):
 
 class ManualTaskDomInformation(BaseModel):
     tag: str = Field(description="The tag of the dom information")
+    xpath: str | None = Field(description="The xpath of the dom information")
     input_type: str | None = Field(description="The input type of the dom information")
     is_mandatory: bool = Field(description="Whether the dom information is mandatory")
     placeholder: str | None = Field(description="The placeholder of the dom information")

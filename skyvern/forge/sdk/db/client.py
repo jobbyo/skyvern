@@ -1132,6 +1132,7 @@ class AgentDB:
     async def create_manual_dom_information(
         self,
         tag: str,
+        xpath: str | None = None,
         input_type: str | None = None,
         is_mandatory: bool = False,
         placeholder: str | None = None,
@@ -1144,6 +1145,7 @@ class AgentDB:
         
         Args:
             tag: The tag of the DOM element (e.g., "input")
+            xpath: The XPath of the DOM element
             input_type: The input type (e.g., "text", "password", "email", etc.)
             is_mandatory: Whether the field is mandatory (default: False)
             placeholder: Placeholder text or associated label text
@@ -1158,6 +1160,7 @@ class AgentDB:
             async with self.Session() as session:
                 manual_dom_information = ManualTaskDomInformationModel(
                     tag=tag,
+                    xpath=xpath,
                     input_type=input_type,
                     is_mandatory=is_mandatory,
                     placeholder=placeholder,

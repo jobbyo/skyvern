@@ -204,6 +204,7 @@ class ManualTaskDomInformationModel(Base):
 
     id = Column(String, primary_key=True, default=generate_manual_task_dom_information_id)
     tag = Column(String, nullable=False)
+    xpath = Column(Text, nullable=True)
     input_type = Column(String, nullable=True)
     is_mandatory = Column(Boolean, default=False, nullable=False)
     placeholder = Column(String, nullable=True)
