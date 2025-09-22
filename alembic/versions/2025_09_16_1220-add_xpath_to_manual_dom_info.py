@@ -1,7 +1,7 @@
 """add xpath column to manual_task_dom_information table
 
-Revision ID: add_xpath_to_manual_task_dom_information
-Revises: add_manual_task_dom_information_table
+Revision ID: add_xpath_to_manual_dom_info
+Revises: add_manual_task_dom_info_table
 Create Date: 2025-09-16 12:20:00.000000+00:00
 
 """
@@ -11,8 +11,8 @@ from alembic import op
 import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
-revision: str = 'add_xpath_to_manual_task_dom_information'
-down_revision: Union[str, None] = 'add_manual_task_dom_information_table'
+revision: str = 'add_xpath_to_manual_dom_info'
+down_revision: Union[str, None] = 'add_manual_task_dom_info_table'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
