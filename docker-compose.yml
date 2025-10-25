@@ -1,4 +1,4 @@
-services:
+sservices:
   postgres:
     image: postgres:14-alpine
     restart: always
@@ -37,7 +37,7 @@ services:
       # - ./alembic:/app/alembic
     environment:
       - DATABASE_STRING=postgresql+psycopg://skyvern:skyvern@postgres:5432/skyvern
-      - BROWSER_TYPE=chromium-headful
+      - BROWSER_TYPE=chromium-headless
       - ENABLE_CODE_BLOCK=true
       - 2CAPTCHA_API_KEY=""
       # - BROWSER_TYPE=cdp-connect
