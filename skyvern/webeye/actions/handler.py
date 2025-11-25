@@ -1631,19 +1631,6 @@ async def handle_upload_file_action(
     # In order to make sure we don't log the secret value, we log the action with the original value action.file_url
     # ************************************************************************************************************** #
     file_url = await get_actual_value_of_parameter_if_secret(task, action.file_url)
-    decoded_url = urllib.parse.unquote(file_url)
-    if (
-        file_url not in str(task.navigation_payload)
-        and file_url not in str(task.navigation_goal)
-        and decoded_url not in str(task.navigation_payload)
-        and decoded_url not in str(task.navigation_goal)
-    ):
-        LOG.warning(
-            "LLM might be imagining the file url, which is not in navigation payload",
-            action=action,
-            file_url=action.file_url,
-        )
-        return [ActionFailure(ImaginaryFileUrl(action.file_url))]
 
     dom = DomUtil(scraped_page=scraped_page, page=page)
     skyvern_element = await dom.get_skyvern_element_by_id(action.element_id)
@@ -1677,11 +1664,13 @@ async def handle_upload_file_action(
 
     LOG.info(f"skyvern_element: {dom_information}")
     if is_file_input:
+        action.file = file_path
         LOG.info("Taking UploadFileAction. Found file input tag", action=action)
         if file_path:
+            print(f"file_path: {file_path}")
             await locator.set_input_files(
                 file_path,
-                timeout=settings.BROWSER_ACTION_TIMEOUT_MS,
+                timeout=settings.BROWSER_ACTION_TIMEOUT_MS + 10000,
             )
 
             # Sleep for 10 seconds after uploading a file to let the page process it
