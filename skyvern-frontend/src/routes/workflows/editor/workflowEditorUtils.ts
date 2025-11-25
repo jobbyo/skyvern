@@ -2,6 +2,9 @@ import Dagre from "@dagrejs/dagre";
 import type { Node } from "@xyflow/react";
 import { Edge } from "@xyflow/react";
 import { nanoid } from "nanoid";
+
+import { TSON } from "@/util/tson";
+
 import {
   WorkflowBlockType,
   WorkflowBlockTypes,
@@ -28,6 +31,7 @@ import {
   TextPromptBlockYAML,
   UploadToS3BlockYAML,
   ValidationBlockYAML,
+  HumanInteractionBlockYAML,
   NavigationBlockYAML,
   WorkflowCreateYAMLRequest,
   ExtractionBlockYAML,
@@ -56,7 +60,10 @@ import { ParametersState } from "./types";
 import { AppNode, isWorkflowBlockNode, WorkflowBlockNode } from "./nodes";
 import { codeBlockNodeDefaultData } from "./nodes/CodeBlockNode/types";
 import { downloadNodeDefaultData } from "./nodes/DownloadNode/types";
-import { fileParserNodeDefaultData } from "./nodes/FileParserNode/types";
+import {
+  isFileParserNode,
+  fileParserNodeDefaultData,
+} from "./nodes/FileParserNode/types";
 import {
   isLoopNode,
   LoopNode,
@@ -81,6 +88,10 @@ import {
   isValidationNode,
   validationNodeDefaultData,
 } from "./nodes/ValidationNode/types";
+import {
+  isHumanInteractionNode,
+  humanInteractionNodeDefaultData,
+} from "./nodes/HumanInteractionNode/types";
 import { actionNodeDefaultData, isActionNode } from "./nodes/ActionNode/types";
 import {
   isNavigationNode,
@@ -146,7 +157,7 @@ export function descendants(nodes: Array<AppNode>, id: string): Array<AppNode> {
 export function getLoopNodeWidth(node: AppNode, nodes: Array<AppNode>): number {
   const maxNesting = maxNestingLevel(nodes);
   const nestingLevel = getNestingLevel(node, nodes);
-  return 600 + (maxNesting - nestingLevel) * 50;
+  return 450 + (maxNesting - nestingLevel) * 50;
 }
 
 function maxNestingLevel(nodes: Array<AppNode>): number {
@@ -238,7 +249,7 @@ function convertToNode(
           parameterKeys: block.parameters.map((p) => p.key),
           totpIdentifier: block.totp_identifier ?? null,
           totpVerificationUrl: block.totp_verification_url ?? null,
-          cacheActions: block.cache_actions,
+          disableCache: block.disable_cache ?? false,
           completeCriterion: block.complete_criterion ?? "",
           terminateCriterion: block.terminate_criterion ?? "",
           includeActionHistoryInVerification:
@@ -257,6 +268,7 @@ function convertToNode(
           prompt: block.prompt,
           url: block.url ?? "",
           maxSteps: block.max_steps,
+          disableCache: block.disable_cache ?? false,
           totpIdentifier: block.totp_identifier,
           totpVerificationUrl: block.totp_verification_url,
           maxScreenshotScrolls: null,
@@ -274,6 +286,7 @@ function convertToNode(
           completeCriterion: block.complete_criterion ?? "",
           terminateCriterion: block.terminate_criterion ?? "",
           parameterKeys: block.parameters.map((p) => p.key),
+          disableCache: block.disable_cache ?? false,
         },
       };
     }
@@ -293,7 +306,7 @@ function convertToNode(
           parameterKeys: block.parameters.map((p) => p.key),
           totpIdentifier: block.totp_identifier ?? null,
           totpVerificationUrl: block.totp_verification_url ?? null,
-          cacheActions: block.cache_actions,
+          disableCache: block.disable_cache ?? false,
           engine: block.engine ?? RunEngine.SkyvernV1,
         },
       };
@@ -314,13 +327,31 @@ function convertToNode(
           parameterKeys: block.parameters.map((p) => p.key),
           totpIdentifier: block.totp_identifier ?? null,
           totpVerificationUrl: block.totp_verification_url ?? null,
-          cacheActions: block.cache_actions,
+          disableCache: block.disable_cache ?? false,
           maxStepsOverride: block.max_steps_per_run ?? null,
           completeCriterion: block.complete_criterion ?? "",
           terminateCriterion: block.terminate_criterion ?? "",
           engine: block.engine ?? RunEngine.SkyvernV1,
           includeActionHistoryInVerification:
             block.include_action_history_in_verification ?? false,
+        },
+      };
+    }
+    case "human_interaction": {
+      return {
+        ...identifiers,
+        ...common,
+        type: "human_interaction",
+        data: {
+          ...commonData,
+          instructions: block.instructions,
+          positiveDescriptor: block.positive_descriptor,
+          negativeDescriptor: block.negative_descriptor,
+          timeoutSeconds: block.timeout_seconds,
+          recipients: block.recipients.join(", "),
+          subject: block.subject,
+          body: block.body,
+          sender: block.sender,
         },
       };
     }
@@ -340,7 +371,7 @@ function convertToNode(
           parameterKeys: block.parameters.map((p) => p.key),
           maxRetries: block.max_retries ?? null,
           maxStepsOverride: block.max_steps_per_run ?? null,
-          cacheActions: block.cache_actions,
+          disableCache: block.disable_cache ?? false,
           engine: block.engine ?? RunEngine.SkyvernV1,
         },
       };
@@ -359,7 +390,7 @@ function convertToNode(
           parameterKeys: block.parameters.map((p) => p.key),
           totpIdentifier: block.totp_identifier ?? null,
           totpVerificationUrl: block.totp_verification_url ?? null,
-          cacheActions: block.cache_actions,
+          disableCache: block.disable_cache ?? false,
           maxStepsOverride: block.max_steps_per_run ?? null,
           completeCriterion: block.complete_criterion ?? "",
           terminateCriterion: block.terminate_criterion ?? "",
@@ -393,9 +424,10 @@ function convertToNode(
           parameterKeys: block.parameters.map((p) => p.key),
           totpIdentifier: block.totp_identifier ?? null,
           totpVerificationUrl: block.totp_verification_url ?? null,
-          cacheActions: block.cache_actions,
+          disableCache: block.disable_cache ?? false,
           maxStepsOverride: block.max_steps_per_run ?? null,
           engine: block.engine ?? RunEngine.SkyvernV1,
+          downloadTimeout: block.download_timeout ?? null, // seconds
         },
       };
     }
@@ -468,6 +500,8 @@ function convertToNode(
         data: {
           ...commonData,
           fileUrl: block.file_url,
+          jsonSchema: JSON.stringify(block.json_schema, null, 2),
+          model: block.model,
         },
       };
     }
@@ -481,6 +515,7 @@ function convertToNode(
           ...commonData,
           fileUrl: block.file_url,
           jsonSchema: JSON.stringify(block.json_schema, null, 2),
+          model: block.model,
         },
       };
     }
@@ -518,10 +553,13 @@ function convertToNode(
           ...commonData,
           path: block.path,
           storageType: block.storage_type,
-          s3Bucket: block.s3_bucket,
-          awsAccessKeyId: block.aws_access_key_id,
-          awsSecretAccessKey: block.aws_secret_access_key,
-          regionName: block.region_name,
+          s3Bucket: block.s3_bucket ?? "",
+          awsAccessKeyId: block.aws_access_key_id ?? "",
+          awsSecretAccessKey: block.aws_secret_access_key ?? "",
+          regionName: block.region_name ?? "",
+          azureStorageAccountName: block.azure_storage_account_name ?? "",
+          azureStorageAccountKey: block.azure_storage_account_key ?? "",
+          azureBlobContainerName: block.azure_blob_container_name ?? "",
         },
       };
     }
@@ -694,6 +732,13 @@ function getElements(
       maxScreenshotScrolls: settings.maxScreenshotScrolls,
       extraHttpHeaders: settings.extraHttpHeaders,
       editable,
+      runWith: settings.runWith,
+      scriptCacheKey: settings.scriptCacheKey,
+      aiFallback: settings.aiFallback ?? true,
+      label: "__start_block__",
+      showCode: false,
+      runSequentially: settings.runSequentially,
+      sequentialKey: settings.sequentialKey,
     }),
   );
 
@@ -724,6 +769,8 @@ function getElements(
         {
           withWorkflowSettings: false,
           editable,
+          label: "__start_block__",
+          showCode: false,
         },
         block.id,
       ),
@@ -796,6 +843,17 @@ function createNode(
         type: "validation",
         data: {
           ...validationNodeDefaultData,
+          label,
+        },
+      };
+    }
+    case "human_interaction": {
+      return {
+        ...identifiers,
+        ...common,
+        type: "human_interaction",
+        data: {
+          ...humanInteractionNodeDefaultData,
           label,
         },
       };
@@ -1042,7 +1100,7 @@ function getWorkflowBlock(node: WorkflowBlockNode): BlockYAML {
         parameter_keys: node.data.parameterKeys,
         totp_identifier: node.data.totpIdentifier,
         totp_verification_url: node.data.totpVerificationUrl,
-        cache_actions: node.data.cacheActions,
+        disable_cache: node.data.disableCache ?? false,
         include_action_history_in_verification:
           node.data.includeActionHistoryInVerification,
         engine: node.data.engine,
@@ -1057,6 +1115,7 @@ function getWorkflowBlock(node: WorkflowBlockNode): BlockYAML {
         totp_identifier: node.data.totpIdentifier,
         totp_verification_url: node.data.totpVerificationUrl,
         url: node.data.url,
+        disable_cache: node.data.disableCache ?? false,
       };
     }
     case "validation": {
@@ -1070,6 +1129,22 @@ function getWorkflowBlock(node: WorkflowBlockNode): BlockYAML {
           string
         > | null,
         parameter_keys: node.data.parameterKeys,
+      };
+    }
+    case "human_interaction": {
+      return {
+        ...base,
+        block_type: "human_interaction",
+        instructions: node.data.instructions,
+        positive_descriptor: node.data.positiveDescriptor,
+        negative_descriptor: node.data.negativeDescriptor,
+        timeout_seconds: node.data.timeoutSeconds,
+        recipients: node.data.recipients
+          .split(",")
+          .map((recipient) => recipient.trim()),
+        subject: node.data.subject,
+        body: node.data.body,
+        sender: node.data.sender === "" ? EMAIL_BLOCK_SENDER : node.data.sender,
       };
     }
     case "action": {
@@ -1091,7 +1166,7 @@ function getWorkflowBlock(node: WorkflowBlockNode): BlockYAML {
         parameter_keys: node.data.parameterKeys,
         totp_identifier: node.data.totpIdentifier,
         totp_verification_url: node.data.totpVerificationUrl,
-        cache_actions: node.data.cacheActions,
+        disable_cache: node.data.disableCache ?? false,
         engine: node.data.engine,
       };
     }
@@ -1115,7 +1190,7 @@ function getWorkflowBlock(node: WorkflowBlockNode): BlockYAML {
         parameter_keys: node.data.parameterKeys,
         totp_identifier: node.data.totpIdentifier,
         totp_verification_url: node.data.totpVerificationUrl,
-        cache_actions: node.data.cacheActions,
+        disable_cache: node.data.disableCache ?? false,
         complete_criterion: node.data.completeCriterion,
         terminate_criterion: node.data.terminateCriterion,
         engine: node.data.engine,
@@ -1136,7 +1211,7 @@ function getWorkflowBlock(node: WorkflowBlockNode): BlockYAML {
         }),
         max_steps_per_run: node.data.maxStepsOverride,
         parameter_keys: node.data.parameterKeys,
-        cache_actions: node.data.cacheActions,
+        disable_cache: node.data.disableCache ?? false,
         engine: node.data.engine,
       };
     }
@@ -1158,7 +1233,7 @@ function getWorkflowBlock(node: WorkflowBlockNode): BlockYAML {
         parameter_keys: node.data.parameterKeys,
         totp_identifier: node.data.totpIdentifier,
         totp_verification_url: node.data.totpVerificationUrl,
-        cache_actions: node.data.cacheActions,
+        disable_cache: node.data.disableCache ?? false,
         complete_criterion: node.data.completeCriterion,
         terminate_criterion: node.data.terminateCriterion,
         engine: node.data.engine,
@@ -1190,8 +1265,9 @@ function getWorkflowBlock(node: WorkflowBlockNode): BlockYAML {
         parameter_keys: node.data.parameterKeys,
         totp_identifier: node.data.totpIdentifier,
         totp_verification_url: node.data.totpVerificationUrl,
-        cache_actions: node.data.cacheActions,
+        disable_cache: node.data.disableCache ?? false,
         engine: node.data.engine,
+        download_timeout: node.data.downloadTimeout, // seconds
       };
     }
     case "sendEmail": {
@@ -1243,10 +1319,13 @@ function getWorkflowBlock(node: WorkflowBlockNode): BlockYAML {
         block_type: "file_upload",
         path: node.data.path,
         storage_type: node.data.storageType,
-        s3_bucket: node.data.s3Bucket,
-        aws_access_key_id: node.data.awsAccessKeyId,
-        aws_secret_access_key: node.data.awsSecretAccessKey,
-        region_name: node.data.regionName,
+        s3_bucket: node.data.s3Bucket ?? "",
+        aws_access_key_id: node.data.awsAccessKeyId ?? "",
+        aws_secret_access_key: node.data.awsSecretAccessKey ?? "",
+        region_name: node.data.regionName ?? "",
+        azure_storage_account_name: node.data.azureStorageAccountName ?? "",
+        azure_storage_account_key: node.data.azureStorageAccountKey ?? "",
+        azure_blob_container_name: node.data.azureBlobContainerName ?? "",
       };
     }
     case "fileParser": {
@@ -1254,7 +1333,8 @@ function getWorkflowBlock(node: WorkflowBlockNode): BlockYAML {
         ...base,
         block_type: "file_url_parser",
         file_url: node.data.fileUrl,
-        file_type: "csv",
+        file_type: "csv", // Backend will auto-detect based on file extension
+        json_schema: JSONParseSafe(node.data.jsonSchema),
       };
     }
     case "textPrompt": {
@@ -1299,7 +1379,9 @@ function getWorkflowBlock(node: WorkflowBlockNode): BlockYAML {
       };
     }
     default: {
-      throw new Error("Invalid node type for getWorkflowBlock");
+      throw new Error(
+        `Invalid node type, '${node.type}', for getWorkflowBlock`,
+      );
     }
   }
 }
@@ -1395,6 +1477,11 @@ function getWorkflowSettings(nodes: Array<AppNode>): WorkflowSettings {
     model: null,
     maxScreenshotScrolls: null,
     extraHttpHeaders: null,
+    runWith: "agent",
+    scriptCacheKey: null,
+    aiFallback: true,
+    runSequentially: false,
+    sequentialKey: null,
   };
   const startNodes = nodes.filter(isStartNode);
   const startNodeWithWorkflowSettings = startNodes.find(
@@ -1411,7 +1498,15 @@ function getWorkflowSettings(nodes: Array<AppNode>): WorkflowSettings {
       webhookCallbackUrl: data.webhookCallbackUrl,
       model: data.model,
       maxScreenshotScrolls: data.maxScreenshotScrolls,
-      extraHttpHeaders: data.extraHttpHeaders,
+      extraHttpHeaders:
+        data.extraHttpHeaders && typeof data.extraHttpHeaders === "object"
+          ? JSON.stringify(data.extraHttpHeaders)
+          : data.extraHttpHeaders,
+      runWith: data.runWith,
+      scriptCacheKey: data.scriptCacheKey,
+      aiFallback: data.aiFallback,
+      runSequentially: data.runSequentially,
+      sequentialKey: data.sequentialKey,
     };
   }
   return defaultSettings;
@@ -1757,11 +1852,30 @@ function convertParametersToParameterYAML(
           };
         }
         case WorkflowParameterTypes.Workflow: {
+          // Convert default values to strings for backend when needed
+          let defaultValue = parameter.default_value;
+          if (
+            parameter.workflow_parameter_type === "boolean" &&
+            typeof parameter.default_value === "boolean"
+          ) {
+            defaultValue = String(parameter.default_value);
+          } else if (
+            (parameter.workflow_parameter_type === "integer" ||
+              parameter.workflow_parameter_type === "float") &&
+            (typeof parameter.default_value === "number" ||
+              typeof parameter.default_value === "string")
+          ) {
+            defaultValue =
+              parameter.default_value === null
+                ? parameter.default_value
+                : String(parameter.default_value);
+          }
+
           return {
             ...base,
             parameter_type: WorkflowParameterTypes.Workflow,
             workflow_parameter_type: parameter.workflow_parameter_type,
-            default_value: parameter.default_value,
+            default_value: defaultValue,
           };
         }
         case WorkflowParameterTypes.Credential: {
@@ -1779,9 +1893,56 @@ function convertParametersToParameterYAML(
             item_id: parameter.item_id,
           };
         }
+        case WorkflowParameterTypes.Azure_Vault_Credential: {
+          return {
+            ...base,
+            parameter_type: WorkflowParameterTypes.Azure_Vault_Credential,
+            vault_name: parameter.vault_name,
+            username_key: parameter.username_key,
+            password_key: parameter.password_key,
+            totp_secret_key: parameter.totp_secret_key,
+          };
+        }
       }
     })
     .filter(Boolean);
+}
+
+function clone<T>(objectToClone: T): T {
+  return JSON.parse(JSON.stringify(objectToClone));
+}
+
+function assignSequentialNextBlockLabels(blocks: Array<BlockYAML>): void {
+  if (!blocks || blocks.length === 0) {
+    return;
+  }
+
+  for (let index = 0; index < blocks.length; index++) {
+    const block = blocks[index]!;
+    const nextBlock =
+      index < blocks.length - 1 ? blocks[index + 1]! : undefined;
+    block.next_block_label = nextBlock ? nextBlock.label : null;
+
+    if (block.block_type === "for_loop") {
+      const loopBlock = block as ForLoopBlockYAML;
+      assignSequentialNextBlockLabels(loopBlock.loop_blocks);
+    }
+  }
+}
+
+export function upgradeWorkflowDefinitionToVersionTwo(
+  blocks: Array<BlockYAML>,
+  currentVersion?: number | null,
+): { blocks: Array<BlockYAML>; version: number } {
+  const clonedBlocks = clone(blocks);
+  const baseVersion = currentVersion ?? 1;
+
+  if (baseVersion <= 2) {
+    assignSequentialNextBlockLabels(clonedBlocks);
+    return { blocks: clonedBlocks, version: 2 };
+  }
+
+  return { blocks: clonedBlocks, version: baseVersion };
 }
 
 function convertBlocksToBlockYAML(
@@ -1791,6 +1952,7 @@ function convertBlocksToBlockYAML(
     const base = {
       label: block.label,
       continue_on_failure: block.continue_on_failure,
+      next_block_label: block.next_block_label,
     };
     switch (block.block_type) {
       case "task": {
@@ -1812,7 +1974,7 @@ function convertBlocksToBlockYAML(
           parameter_keys: block.parameters.map((p) => p.key),
           totp_identifier: block.totp_identifier,
           totp_verification_url: block.totp_verification_url,
-          cache_actions: block.cache_actions,
+          disable_cache: block.disable_cache ?? false,
           include_action_history_in_verification:
             block.include_action_history_in_verification,
           engine: block.engine,
@@ -1828,6 +1990,7 @@ function convertBlocksToBlockYAML(
           max_steps: block.max_steps,
           totp_identifier: block.totp_identifier,
           totp_verification_url: block.totp_verification_url,
+          disable_cache: block.disable_cache ?? false,
         };
         return blockYaml;
       }
@@ -1839,6 +2002,23 @@ function convertBlocksToBlockYAML(
           terminate_criterion: block.terminate_criterion,
           error_code_mapping: block.error_code_mapping,
           parameter_keys: block.parameters.map((p) => p.key),
+        };
+        return blockYaml;
+      }
+      case "human_interaction": {
+        const blockYaml: HumanInteractionBlockYAML = {
+          ...base,
+          block_type: "human_interaction",
+          // --
+          instructions: block.instructions,
+          positive_descriptor: block.positive_descriptor,
+          negative_descriptor: block.negative_descriptor,
+          timeout_seconds: block.timeout_seconds,
+          // --
+          sender: block.sender,
+          recipients: block.recipients,
+          subject: block.subject,
+          body: block.body,
         };
         return blockYaml;
       }
@@ -1856,7 +2036,7 @@ function convertBlocksToBlockYAML(
           parameter_keys: block.parameters.map((p) => p.key),
           totp_identifier: block.totp_identifier,
           totp_verification_url: block.totp_verification_url,
-          cache_actions: block.cache_actions,
+          disable_cache: block.disable_cache ?? false,
           engine: block.engine,
         };
         return blockYaml;
@@ -1878,7 +2058,7 @@ function convertBlocksToBlockYAML(
           parameter_keys: block.parameters.map((p) => p.key),
           totp_identifier: block.totp_identifier,
           totp_verification_url: block.totp_verification_url,
-          cache_actions: block.cache_actions,
+          disable_cache: block.disable_cache ?? false,
           complete_criterion: block.complete_criterion,
           terminate_criterion: block.terminate_criterion,
           include_action_history_in_verification:
@@ -1897,7 +2077,7 @@ function convertBlocksToBlockYAML(
           max_retries: block.max_retries,
           max_steps_per_run: block.max_steps_per_run,
           parameter_keys: block.parameters.map((p) => p.key),
-          cache_actions: block.cache_actions,
+          disable_cache: block.disable_cache ?? false,
           engine: block.engine,
         };
         return blockYaml;
@@ -1915,7 +2095,7 @@ function convertBlocksToBlockYAML(
           parameter_keys: block.parameters.map((p) => p.key),
           totp_identifier: block.totp_identifier,
           totp_verification_url: block.totp_verification_url,
-          cache_actions: block.cache_actions,
+          disable_cache: block.disable_cache ?? false,
           complete_criterion: block.complete_criterion,
           terminate_criterion: block.terminate_criterion,
           engine: block.engine,
@@ -1944,8 +2124,9 @@ function convertBlocksToBlockYAML(
           parameter_keys: block.parameters.map((p) => p.key),
           totp_identifier: block.totp_identifier,
           totp_verification_url: block.totp_verification_url,
-          cache_actions: block.cache_actions,
+          disable_cache: block.disable_cache ?? false,
           engine: block.engine,
+          download_timeout: null, // seconds
         };
         return blockYaml;
       }
@@ -2002,10 +2183,13 @@ function convertBlocksToBlockYAML(
           block_type: "file_upload",
           path: block.path,
           storage_type: block.storage_type,
-          s3_bucket: block.s3_bucket,
-          aws_access_key_id: block.aws_access_key_id,
-          aws_secret_access_key: block.aws_secret_access_key,
-          region_name: block.region_name,
+          s3_bucket: block.s3_bucket ?? "",
+          aws_access_key_id: block.aws_access_key_id ?? "",
+          aws_secret_access_key: block.aws_secret_access_key ?? "",
+          region_name: block.region_name ?? "",
+          azure_storage_account_name: block.azure_storage_account_name ?? "",
+          azure_storage_account_key: block.azure_storage_account_key ?? "",
+          azure_blob_container_name: block.azure_blob_container_name ?? "",
         };
         return blockYaml;
       }
@@ -2070,6 +2254,7 @@ function convertBlocksToBlockYAML(
 }
 
 function convert(workflow: WorkflowApiResponse): WorkflowCreateYAMLRequest {
+  const workflowDefinitionVersion = workflow.workflow_definition.version ?? 1;
   const userParameters = workflow.workflow_definition.parameters.filter(
     (parameter) => parameter.parameter_type !== WorkflowParameterTypes.Output,
   );
@@ -2084,10 +2269,17 @@ function convert(workflow: WorkflowApiResponse): WorkflowCreateYAMLRequest {
     max_screenshot_scrolls: workflow.max_screenshot_scrolls,
     extra_http_headers: workflow.extra_http_headers,
     workflow_definition: {
+      version: workflowDefinitionVersion,
       parameters: convertParametersToParameterYAML(userParameters),
       blocks: convertBlocksToBlockYAML(workflow.workflow_definition.blocks),
     },
     is_saved_task: workflow.is_saved_task,
+    status: workflow.status,
+    run_with: workflow.run_with,
+    cache_key: workflow.cache_key,
+    ai_fallback: workflow.ai_fallback ?? undefined,
+    run_sequentially: workflow.run_sequentially ?? undefined,
+    sequential_key: workflow.sequential_key ?? undefined,
   };
 }
 
@@ -2136,6 +2328,16 @@ function getWorkflowErrors(nodes: Array<AppNode>): Array<string> {
     } catch {
       errors.push(`${node.data.label}: Error messages is not valid JSON.`);
     }
+    // Validate Task data schema JSON when enabled (value different from "null")
+    if (node.data.dataSchema && node.data.dataSchema !== "null") {
+      const result = TSON.parse(node.data.dataSchema);
+
+      if (!result.success) {
+        errors.push(
+          `${node.data.label}: Data schema has invalid templated JSON: ${result.error ?? "-"}`,
+        );
+      }
+    }
   });
 
   const validationNodes = nodes.filter(isValidationNode);
@@ -2155,6 +2357,13 @@ function getWorkflowErrors(nodes: Array<AppNode>): Array<string> {
     }
   });
 
+  const interactionNodes = nodes.filter(isHumanInteractionNode);
+  interactionNodes.forEach((node) => {
+    if (node.data.recipients.trim().length === 0) {
+      errors.push(`${node.data.label}: Recipients is required.`);
+    }
+  });
+
   const navigationNodes = nodes.filter(isNavigationNode);
   navigationNodes.forEach((node) => {
     if (node.data.navigationGoal.length === 0) {
@@ -2166,6 +2375,16 @@ function getWorkflowErrors(nodes: Array<AppNode>): Array<string> {
   extractionNodes.forEach((node) => {
     if (node.data.dataExtractionGoal.length === 0) {
       errors.push(`${node.data.label}: Data extraction goal is required.`);
+    }
+    // Validate Extraction data schema JSON when enabled (value different from "null")
+    if (node.data.dataSchema && node.data.dataSchema !== "null") {
+      const result = TSON.parse(node.data.dataSchema);
+
+      if (!result.success) {
+        errors.push(
+          `${node.data.label}: Data schema has invalid templated JSON: ${result.error ?? "-"}`,
+        );
+      }
     }
   });
 
@@ -2180,6 +2399,15 @@ function getWorkflowErrors(nodes: Array<AppNode>): Array<string> {
 
   const pdfParserNodes = nodes.filter(isPdfParserNode);
   pdfParserNodes.forEach((node) => {
+    try {
+      JSON.parse(node.data.jsonSchema);
+    } catch {
+      errors.push(`${node.data.label}: Data schema is not valid JSON.`);
+    }
+  });
+
+  const fileParserNodes = nodes.filter(isFileParserNode);
+  fileParserNodes.forEach((node) => {
     try {
       JSON.parse(node.data.jsonSchema);
     } catch {
@@ -2242,6 +2470,7 @@ export {
   getLabelForWorkflowParameterType,
   maxNestingLevel,
   getWorkflowSettings,
+  getOrderedChildrenBlocks,
   getOutputParameterKey,
   getPreviousNodeIds,
   getUniqueLabelForExistingNode,

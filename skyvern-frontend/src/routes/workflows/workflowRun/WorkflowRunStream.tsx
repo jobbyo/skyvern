@@ -1,11 +1,11 @@
 import { Status } from "@/api/types";
-import { useWorkflowRunQuery } from "../hooks/useWorkflowRunQuery";
+import { useWorkflowRunWithWorkflowQuery } from "../hooks/useWorkflowRunWithWorkflowQuery";
 import { ZoomableImage } from "@/components/ZoomableImage";
 import { useEffect, useState } from "react";
 import { statusIsNotFinalized } from "@/routes/tasks/types";
 import { useCredentialGetter } from "@/hooks/useCredentialGetter";
-import { useParams } from "react-router-dom";
-import { envCredential } from "@/util/env";
+import { useFirstParam } from "@/hooks/useFirstParam";
+import { getRuntimeApiKey } from "@/util/env";
 import { toast } from "@/components/ui/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -15,16 +15,24 @@ type StreamMessage = {
   screenshot?: string;
 };
 
+interface Props {
+  alwaysShowStream?: boolean;
+}
+
 let socket: WebSocket | null = null;
 
 const wssBaseUrl = import.meta.env.VITE_WSS_BASE_URL;
 
-function WorkflowRunStream() {
-  const { data: workflowRun } = useWorkflowRunQuery();
+function WorkflowRunStream(props?: Props) {
+  const alwaysShowStream = props?.alwaysShowStream ?? false;
+  const workflowRunId = useFirstParam("workflowRunId", "runId");
+  const { data: workflowRun } = useWorkflowRunWithWorkflowQuery();
   const [streamImgSrc, setStreamImgSrc] = useState<string>("");
-  const showStream = workflowRun && statusIsNotFinalized(workflowRun);
+  const showStream =
+    alwaysShowStream || (workflowRun && statusIsNotFinalized(workflowRun));
   const credentialGetter = useCredentialGetter();
-  const { workflowRunId, workflowPermanentId } = useParams();
+  const workflow = workflowRun?.workflow;
+  const workflowPermanentId = workflow?.workflow_permanent_id;
   const queryClient = useQueryClient();
 
   useEffect(() => {
@@ -39,7 +47,8 @@ function WorkflowRunStream() {
         const token = await credentialGetter();
         credential = `?token=Bearer ${token}`;
       } else {
-        credential = `?apikey=${envCredential}`;
+        const apiKey = getRuntimeApiKey();
+        credential = apiKey ? `?apikey=${apiKey}` : "";
       }
       if (socket) {
         socket.close();
@@ -65,6 +74,9 @@ function WorkflowRunStream() {
             });
             queryClient.invalidateQueries({
               queryKey: ["workflowRun", workflowPermanentId, workflowRunId],
+            });
+            queryClient.invalidateQueries({
+              queryKey: ["workflowRun", workflowRunId],
             });
             queryClient.invalidateQueries({
               queryKey: ["workflowTasks", workflowRunId],
@@ -149,6 +161,26 @@ function WorkflowRunStream() {
       </div>
     );
   }
+
+  if (alwaysShowStream) {
+    if (streamImgSrc?.length > 0) {
+      return (
+        <div className="h-full w-full">
+          <ZoomableImage
+            src={`data:image/png;base64,${streamImgSrc}`}
+            className="rounded-md"
+          />
+        </div>
+      );
+    }
+
+    return (
+      <div className="flex h-full w-full items-center justify-center">
+        Waiting for stream...
+      </div>
+    );
+  }
+
   return null;
 }
 

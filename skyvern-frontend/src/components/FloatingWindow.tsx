@@ -6,6 +6,7 @@
  * and `re-resizable`; but I don't want to do that until it's worth the effort.)
  */
 
+import { OpenInNewWindowIcon } from "@radix-ui/react-icons";
 import { ReloadIcon } from "@radix-ui/react-icons";
 import { Resizable } from "re-resizable";
 import {
@@ -18,11 +19,19 @@ import {
 import { flushSync } from "react-dom";
 import Draggable from "react-draggable";
 
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/util/utils";
+import { PowerIcon } from "./icons/PowerIcon";
 
 type OS = "Windows" | "macOS" | "Linux" | "Unknown";
 
 const Constants = {
+  HandleSize: "40px",
   MinHeight: 52,
   MinWidth: 256,
 } as const;
@@ -70,11 +79,62 @@ function WindowsButton(props: {
   );
 }
 
+/**
+ * Button to open browser in a new tab.
+ */
+function BreakoutButton(props: { onClick: () => void }) {
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            className="h-[1.2rem] w-[1.25rem] opacity-50 hover:opacity-100"
+            onClick={() => props.onClick()}
+          >
+            <OpenInNewWindowIcon />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Open In New Tab</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
+function PowerButton(props: { onClick: () => void }) {
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            className="h-[1.2rem] w-[1.25rem] opacity-50 hover:opacity-100"
+            onClick={() => props.onClick()}
+          >
+            <PowerIcon />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Cycle (New Browser)</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
 function ReloadButton(props: { isReloading: boolean; onClick: () => void }) {
   return (
-    <button onClick={() => props.onClick()}>
-      <ReloadIcon className={props.isReloading ? "animate-spin" : undefined} />
-    </button>
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            className="opacity-50 hover:opacity-100"
+            onClick={() => props.onClick()}
+          >
+            <ReloadIcon
+              className={props.isReloading ? "animate-spin" : undefined}
+            />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Reconnect</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }
 
@@ -108,50 +168,70 @@ function getOs(): OS {
 function FloatingWindow({
   bounded,
   children,
+  initialPosition,
   initialWidth,
   initialHeight,
   maximized,
+  showBreakoutButton,
   showCloseButton,
   showMaximizeButton,
   showMinimizeButton,
+  showPowerButton,
   showReloadButton = false,
   title,
   zIndex,
   // --
+  onBlur,
+  onBreakout,
+  onCycle,
+  onFocus,
   onInteract,
+  onMinimize,
+  onMaximize,
+  onRestore,
 }: {
   bounded?: boolean;
   children: React.ReactNode;
   initialHeight?: number;
+  initialPosition?: { x: number; y: number };
   initialWidth?: number;
   maximized?: boolean;
+  showBreakoutButton?: boolean;
   showCloseButton?: boolean;
   showMaximizeButton?: boolean;
   showMinimizeButton?: boolean;
+  showPowerButton?: boolean;
   showReloadButton?: boolean;
   title: string;
-  zIndex?: string;
+  zIndex?: number;
   // --
+  onBlur?: () => void;
+  onBreakout?: () => void;
+  onCycle?: () => void;
+  onFocus?: () => void;
   onInteract?: () => void;
+  onMinimize?: () => void;
+  onMaximize?: () => void;
+  onRestore?: () => void;
 }) {
   const [reloadKey, setReloadKey] = useState(0);
   const [isReloading, setIsReloading] = useState(false);
-  const [position, setPosition] = useState({ x: 0, y: 0 });
+  const [position, setPosition] = useState(initialPosition ?? { x: 0, y: 0 });
   const [size, setSize] = useState({
-    left: 0,
-    top: 0,
+    left: initialPosition?.x ?? 0,
+    top: initialPosition?.y ?? 0,
     height: initialHeight ?? Constants.MinHeight,
     width: initialWidth ?? Constants.MinWidth,
   });
   const [lastSize, setLastSize] = useState({
-    left: 0,
-    top: 0,
+    left: initialPosition?.x ?? 0,
+    top: initialPosition?.y ?? 0,
     height: initialHeight ?? Constants.MinHeight,
     width: initialWidth ?? Constants.MinWidth,
   });
   const [restoreSize, setRestoreSize] = useState({
-    left: 0,
-    top: 0,
+    left: initialPosition?.x ?? 0,
+    top: initialPosition?.y ?? 0,
     height: initialHeight ?? Constants.MinHeight,
     width: initialWidth ?? Constants.MinWidth,
   });
@@ -174,6 +254,7 @@ function FloatingWindow({
       }
     | undefined
   >(undefined);
+  const hasInitialized = useRef(false);
 
   const os = getOs();
 
@@ -241,17 +322,18 @@ function FloatingWindow({
   );
 
   useEffect(() => {
-    if (!initialWidth || !initialHeight) {
+    if (hasInitialized.current || !initialWidth || !initialHeight) {
       return;
     }
+    hasInitialized.current = true;
     setSize({
-      left: 0,
-      top: 0,
+      left: initialPosition?.x ?? 0,
+      top: initialPosition?.y ?? 0,
       width: initialWidth,
       height: initialHeight,
     });
-    setPosition({ x: 0, y: 0 });
-  }, [initialWidth, initialHeight]);
+    setPosition({ x: initialPosition?.x ?? 0, y: initialPosition?.y ?? 0 });
+  }, [initialWidth, initialHeight, initialPosition]);
 
   /**
    * Forces the sizing to take place after the resize is complete.
@@ -349,6 +431,8 @@ function FloatingWindow({
     });
 
     setPosition({ x: 0, y: 0 });
+
+    onMaximize?.();
   };
 
   const minimize = () => {
@@ -384,6 +468,8 @@ function FloatingWindow({
     });
 
     setPosition({ x: left, y: top });
+
+    onMinimize?.();
   };
 
   const restore = () => {
@@ -405,6 +491,8 @@ function FloatingWindow({
 
     setIsMaximized(false);
     setIsMinimized(false);
+
+    onRestore?.();
   };
 
   const reload = () => {
@@ -418,6 +506,14 @@ function FloatingWindow({
     setTimeout(() => {
       setIsReloading(false);
     }, 1000);
+  };
+
+  const breakout = () => {
+    onBreakout?.();
+  };
+
+  const cycle = () => {
+    onCycle?.();
   };
 
   /**
@@ -483,9 +579,21 @@ function FloatingWindow({
             pointerEvents: "auto",
             overflow: "hidden",
           }}
-          className={cn("border-2 border-gray-700", {
-            "hover:border-slate-500": !isMaximized,
+          className={cn("rounded-xl border border-slate-700", {
+            "hover:border-slate-600": !isMaximized,
           })}
+          handleStyles={{
+            bottomLeft: {
+              width: isMinimized || isMaximized ? "0px" : Constants.HandleSize,
+              height: isMinimized || isMaximized ? "0px" : Constants.HandleSize,
+              zIndex: 20,
+            },
+            bottomRight: {
+              width: isMinimized || isMaximized ? "0px" : Constants.HandleSize,
+              height: isMinimized || isMaximized ? "0px" : Constants.HandleSize,
+              zIndex: 20,
+            },
+          }}
           minHeight={Constants.MinHeight}
           minWidth={Constants.MinWidth}
           // TODO: turn back on; turning off clears a resize bug atm
@@ -509,6 +617,7 @@ function FloatingWindow({
               return;
             }
 
+            onFocus?.();
             setIsMinimized(false);
             setIsResizing(true);
             setDragStartSize({ ...size, left: position.x, top: position.y });
@@ -518,6 +627,7 @@ function FloatingWindow({
               return;
             }
 
+            onFocus?.();
             onResize({ delta, direction, size });
           }}
           onResizeStop={() => {
@@ -534,7 +644,8 @@ function FloatingWindow({
           <div
             ref={resizableRef}
             key={reloadKey}
-            className="my-window"
+            className="my-window focus:outline-none"
+            tabIndex={-1}
             style={{
               pointerEvents: "auto",
               padding: "0px",
@@ -543,14 +654,19 @@ function FloatingWindow({
               display: "flex",
               flexDirection: "column",
             }}
-            onMouseDownCapture={() => onInteract?.()}
+            onFocus={onFocus}
+            onBlur={onBlur}
+            onMouseDownCapture={(e) => {
+              onInteract?.();
+              e.currentTarget.focus();
+            }}
             onDoubleClick={() => {
               toggleMaximized();
             }}
           >
             <div
               className={cn(
-                "my-window-header flex h-[3rem] w-full cursor-move items-center justify-start gap-2 bg-[#131519] p-3",
+                "my-window-header flex h-[3rem] w-full cursor-move items-center justify-start gap-2 bg-slate-elevation3 p-3",
               )}
             >
               {os === "macOS" ? (
@@ -582,8 +698,14 @@ function FloatingWindow({
                         onClick={toggleMaximized}
                       />
                     )}
+                    {showPowerButton && <PowerButton onClick={() => cycle()} />}
                   </div>
-                  <div className="ml-auto">{title}</div>
+                  <div className="ml-auto flex items-center justify-start gap-2">
+                    {showBreakoutButton && (
+                      <BreakoutButton onClick={() => breakout()} />
+                    )}
+                    {title}
+                  </div>
                   {showReloadButton && (
                     <ReloadButton
                       isReloading={isReloading}
@@ -601,6 +723,7 @@ function FloatingWindow({
                   )}
                   <div>{title}</div>
                   <div className="buttons-container ml-auto flex h-full items-center gap-2">
+                    {showPowerButton && <PowerButton onClick={() => cycle()} />}
                     {showMinimizeButton && (
                       <WindowsButton
                         onClick={toggleMinimized}
@@ -633,4 +756,4 @@ function FloatingWindow({
   );
 }
 
-export { FloatingWindow };
+export { BreakoutButton, FloatingWindow, PowerButton, ReloadButton };

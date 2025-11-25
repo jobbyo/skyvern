@@ -1,5 +1,3 @@
-from pathlib import Path
-
 from fastapi import status
 
 
@@ -51,14 +49,29 @@ class ProxyLocationNotSupportedError(SkyvernException):
         super().__init__(f"Unknown proxy location: {proxy_location}")
 
 
+class WebhookReplayError(SkyvernHTTPException):
+    def __init__(
+        self,
+        message: str | None = None,
+        *,
+        status_code: int = status.HTTP_400_BAD_REQUEST,
+    ):
+        super().__init__(message=message or "Webhook replay failed.", status_code=status_code)
+
+
+class MissingWebhookTarget(WebhookReplayError):
+    def __init__(self, message: str | None = None):
+        super().__init__(message or "No webhook URL configured for the run.")
+
+
+class MissingApiKey(WebhookReplayError):
+    def __init__(self, message: str | None = None):
+        super().__init__(message or "Organization does not have a valid API key configured.")
+
+
 class TaskNotFound(SkyvernHTTPException):
     def __init__(self, task_id: str | None = None):
         super().__init__(f"Task {task_id} not found", status_code=status.HTTP_404_NOT_FOUND)
-
-
-class ScriptNotFound(SkyvernException):
-    def __init__(self, script_name: str | None = None):
-        super().__init__(f"Script {script_name} not found. Has the script been registered?")
 
 
 class MissingElement(SkyvernException):
@@ -67,6 +80,11 @@ class MissingElement(SkyvernException):
             f"Found no elements. Might be due to previous actions which removed this element."
             f" selector={selector} element_id={element_id}",
         )
+
+
+class MissingExtractActionsResponse(SkyvernException):
+    def __init__(self) -> None:
+        super().__init__("extract-actions response missing")
 
 
 class MultipleElementsFound(SkyvernException):
@@ -155,6 +173,17 @@ class WorkflowNotFound(SkyvernHTTPException):
         )
 
 
+class WorkflowNotFoundForWorkflowRun(SkyvernHTTPException):
+    def __init__(
+        self,
+        workflow_run_id: str | None = None,
+    ) -> None:
+        super().__init__(
+            f"Workflow not found for workflow run {workflow_run_id}",
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
+
+
 class WorkflowRunNotFound(SkyvernHTTPException):
     def __init__(self, workflow_run_id: str) -> None:
         super().__init__(f"WorkflowRun {workflow_run_id} not found", status_code=status.HTTP_404_NOT_FOUND)
@@ -205,6 +234,11 @@ class FailedToStopLoadingPage(SkyvernException):
         super().__init__(f"Failed to stop loading page url {url}. Error message: {error_message}")
 
 
+class EmptyBrowserContext(SkyvernException):
+    def __init__(self) -> None:
+        super().__init__("Browser context is empty")
+
+
 class UnexpectedTaskStatus(SkyvernException):
     def __init__(self, task_id: str, status: str) -> None:
         super().__init__(f"Unexpected task status {status} for task {task_id}")
@@ -230,11 +264,6 @@ class UnknownErrorWhileCreatingBrowserContext(SkyvernException):
         super().__init__(
             f"Unknown error while creating browser context for {browser_type}. Exception type: {type(exception)} Exception message: {str(exception)}"
         )
-
-
-class BrowserStateMissingPage(SkyvernException):
-    def __init__(self) -> None:
-        super().__init__("BrowserState is missing the main page")
 
 
 class OrganizationNotFound(SkyvernHTTPException):
@@ -269,9 +298,9 @@ class ScrapingFailed(SkyvernException):
         super().__init__("Scraping failed.")
 
 
-class ScrapingFailedNoUrl(ScrapingFailed):
+class ScrapingFailedBlankPage(ScrapingFailed):
     def __init__(self) -> None:
-        super().__init__(reason="A URL is missing. Please ensure there is a URL for Skyvern to work with.")
+        super().__init__(reason="It's a blank page. Please ensure there is a non-blank page for Skyvern to work with.")
 
 
 class WorkflowRunContextNotInitialized(SkyvernException):
@@ -286,7 +315,7 @@ class DownloadFileMaxSizeExceeded(SkyvernException):
 
 
 class DownloadFileMaxWaitingTime(SkyvernException):
-    def __init__(self, downloading_files: list[Path]) -> None:
+    def __init__(self, downloading_files: list[str]) -> None:
         self.downloading_files = downloading_files
         super().__init__(f"Long-time downloading files [{downloading_files}].")
 
@@ -650,6 +679,13 @@ class InputToInvisibleElement(SkyvernException):
         )
 
 
+class InputToReadonlyElement(SkyvernException):
+    def __init__(self, element_id: str):
+        super().__init__(
+            f"The element(id={element_id}) now is readonly. Try to interact with other elements, or try to interact with it later when it's not readonly."
+        )
+
+
 class FailedToParseActionInstruction(SkyvernException):
     def __init__(self, reason: str | None, error_type: str | None):
         super().__init__(
@@ -702,6 +738,33 @@ class NoTOTPVerificationCodeFound(SkyvernHTTPException):
         super().__init__(msg)
 
 
+class FailedToGetTOTPVerificationCode(SkyvernException):
+    reason: str | None = None
+
+    def __init__(
+        self,
+        task_id: str | None = None,
+        workflow_run_id: str | None = None,
+        workflow_id: str | None = None,
+        totp_verification_url: str | None = None,
+        totp_identifier: str | None = None,
+        reason: str | None = None,
+    ) -> None:
+        self.reason = reason
+        msg = "Failed to get TOTP verification code."
+        if task_id:
+            msg += f" task_id={task_id}"
+        if workflow_run_id:
+            msg += f" workflow_run_id={workflow_run_id}"
+        if workflow_id:
+            msg += f" workflow_id={workflow_id}"
+        if totp_verification_url:
+            msg += f" totp_verification_url={totp_verification_url}"
+        if totp_identifier:
+            msg += f" totp_identifier={totp_identifier}"
+        super().__init__(f"Failed to get TOTP verification code. reason: {reason}")
+
+
 class SkyvernContextWindowExceededError(SkyvernException):
     def __init__(self) -> None:
         message = "Context window exceeded. Please contact support@skyvern.com for help."
@@ -718,9 +781,9 @@ class BrowserSessionAlreadyOccupiedError(SkyvernHTTPException):
         super().__init__(f"Browser session {browser_session_id} is already occupied")
 
 
-class MissingBrowserSessionError(SkyvernHTTPException):
-    def __init__(self, browser_session_id: str) -> None:
-        super().__init__(f"Browser session {browser_session_id} does not exist.")
+class BrowserSessionNotRenewable(SkyvernException):
+    def __init__(self, reason: str, browser_session_id: str) -> None:
+        super().__init__(f"Browser session {browser_session_id} is not renewable: {reason}")
 
 
 class MissingBrowserAddressError(SkyvernException):
@@ -736,6 +799,62 @@ class BrowserSessionNotFound(SkyvernHTTPException):
         )
 
 
+class BrowserProfileNotFound(SkyvernHTTPException):
+    def __init__(self, profile_id: str, organization_id: str | None = None) -> None:
+        message = f"Browser profile {profile_id} not found"
+        if organization_id:
+            message += f" for organization {organization_id}"
+        super().__init__(message, status_code=status.HTTP_404_NOT_FOUND)
+
+
+class CannotUpdateWorkflowDueToCodeCache(SkyvernException):
+    def __init__(self, workflow_permanent_id: str) -> None:
+        super().__init__(f"No confirmation for code cache deletion on {workflow_permanent_id}.")
+
+
 class APIKeyNotFound(SkyvernHTTPException):
     def __init__(self, organization_id: str) -> None:
         super().__init__(f"No valid API key token found for organization {organization_id}")
+
+
+class ElementOutOfCurrentViewport(SkyvernException):
+    def __init__(self, element_id: str):
+        super().__init__(f"Element {element_id} is out of current viewport")
+
+
+class ScriptNotFound(SkyvernHTTPException):
+    def __init__(self, script_id: str) -> None:
+        super().__init__(f"Script {script_id} not found")
+
+
+class NoTOTPSecretFound(SkyvernException):
+    def __init__(self) -> None:
+        super().__init__("No TOTP secret found")
+
+
+class NoElementFound(SkyvernException):
+    def __init__(self) -> None:
+        super().__init__("No element found.")
+
+
+class OutputParameterNotFound(SkyvernException):
+    def __init__(self, block_label: str, workflow_permanent_id: str) -> None:
+        super().__init__(f"Output parameter for {block_label} not found in workflow {workflow_permanent_id}")
+
+
+class AzureBaseError(SkyvernException):
+    def __init__(self, message: str) -> None:
+        super().__init__(f"Azure error: {message}")
+
+
+class AzureConfigurationError(AzureBaseError):
+    def __init__(self, message: str) -> None:
+        super().__init__(f"Error in Azure configuration: {message}")
+
+
+###### Script Exceptions ######
+
+
+class ScriptTerminationException(SkyvernException):
+    def __init__(self, reason: str | None = None) -> None:
+        super().__init__(reason)

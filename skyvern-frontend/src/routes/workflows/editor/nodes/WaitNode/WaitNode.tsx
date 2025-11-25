@@ -1,37 +1,30 @@
 import { HelpTooltip } from "@/components/HelpTooltip";
 import { Label } from "@/components/ui/label";
-import { Handle, NodeProps, Position, useReactFlow } from "@xyflow/react";
-import { useState } from "react";
+import { Handle, NodeProps, Position } from "@xyflow/react";
 import { helpTooltips } from "../../helpContent";
 import type { WaitNode } from "./types";
 import { useIsFirstBlockInWorkflow } from "../../hooks/useIsFirstNodeInWorkflow";
 import { Input } from "@/components/ui/input";
-import { useDebugStore } from "@/store/useDebugStore";
 import { cn } from "@/util/utils";
 import { NodeHeader } from "../components/NodeHeader";
 import { useParams } from "react-router-dom";
+import { statusIsRunningOrQueued } from "@/routes/tasks/types";
+import { useWorkflowRunQuery } from "@/routes/workflows/hooks/useWorkflowRunQuery";
+import { useUpdate } from "@/routes/workflows/editor/useUpdate";
 
 function WaitNode({ id, data, type }: NodeProps<WaitNode>) {
-  const { updateNodeData } = useReactFlow();
-  const { debuggable, editable, label } = data;
-  const debugStore = useDebugStore();
-  const elideFromDebugging = debugStore.isDebugMode && !debuggable;
+  const { editable, label } = data;
   const { blockLabel: urlBlockLabel } = useParams();
-  const thisBlockIsPlaying =
+  const { data: workflowRun } = useWorkflowRunQuery();
+  const workflowRunIsRunningOrQueued =
+    workflowRun && statusIsRunningOrQueued(workflowRun);
+  const thisBlockIsTargetted =
     urlBlockLabel !== undefined && urlBlockLabel === label;
-  const [inputs, setInputs] = useState({
-    waitInSeconds: data.waitInSeconds,
-  });
-
-  function handleChange(key: string, value: unknown) {
-    if (!editable) {
-      return;
-    }
-    setInputs({ ...inputs, [key]: value });
-    updateNodeData(id, { [key]: value });
-  }
-
+  const thisBlockIsPlaying =
+    workflowRunIsRunningOrQueued && thisBlockIsTargetted;
   const isFirstWorkflowBlock = useIsFirstBlockInWorkflow({ id });
+
+  const update = useUpdate<WaitNode["data"]>({ id, editable });
 
   return (
     <div>
@@ -51,14 +44,14 @@ function WaitNode({ id, data, type }: NodeProps<WaitNode>) {
         className={cn(
           "transform-origin-center w-[30rem] space-y-4 rounded-lg bg-slate-elevation3 px-6 py-4 transition-all",
           {
-            "pointer-events-none bg-slate-950 outline outline-2 outline-slate-300":
-              thisBlockIsPlaying,
+            "pointer-events-none": thisBlockIsPlaying,
+            "bg-slate-950 outline outline-2 outline-slate-300":
+              thisBlockIsTargetted,
           },
         )}
       >
         <NodeHeader
           blockLabel={label}
-          disabled={elideFromDebugging}
           editable={editable}
           nodeId={id}
           totpIdentifier={null}
@@ -80,9 +73,9 @@ function WaitNode({ id, data, type }: NodeProps<WaitNode>) {
             ) : null}
           </div>
           <Input
-            value={inputs.waitInSeconds}
+            value={data.waitInSeconds}
             onChange={(event) => {
-              handleChange("waitInSeconds", event.target.value);
+              update({ waitInSeconds: event.target.value });
             }}
             className="nopan text-xs"
           />

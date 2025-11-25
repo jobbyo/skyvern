@@ -1,3 +1,5 @@
+import { WorkflowApiResponse } from "@/routes/workflows/types/workflowTypes";
+
 export const ArtifactType = {
   Recording: "recording",
   ActionScreenshot: "screenshot_action",
@@ -25,6 +27,8 @@ export const Status = {
   Queued: "queued",
   TimedOut: "timed_out",
   Canceled: "canceled",
+  Skipped: "skipped",
+  Paused: "paused",
 } as const;
 
 export type Status = (typeof Status)[keyof typeof Status];
@@ -42,6 +46,12 @@ export const ProxyLocation = {
   ResidentialZA: "RESIDENTIAL_ZA",
   ResidentialAR: "RESIDENTIAL_AR",
   ResidentialAU: "RESIDENTIAL_AU",
+  ResidentialBR: "RESIDENTIAL_BR",
+  ResidentialTR: "RESIDENTIAL_TR",
+  ResidentialCA: "RESIDENTIAL_CA",
+  ResidentialMX: "RESIDENTIAL_MX",
+  ResidentialIT: "RESIDENTIAL_IT",
+  ResidentialNL: "RESIDENTIAL_NL",
   ResidentialISP: "RESIDENTIAL_ISP",
   None: "NONE",
 } as const;
@@ -104,6 +114,7 @@ export type Task = {
   title: string | null;
   url: string;
   webhook_callback_url: string | null;
+  webhook_failure_reason: string | null;
   navigation_goal: string | null;
   data_extraction_goal: string | null;
   navigation_payload: Record<string, unknown> | string | null;
@@ -122,6 +133,7 @@ export type TaskApiResponse = {
   screenshot_url: string | null;
   recording_url: string | null;
   failure_reason: string | null;
+  webhook_failure_reason: string | null;
   errors: Array<Record<string, unknown>>;
   max_steps_per_run: number | null;
   task_v2: TaskV2 | null;
@@ -144,6 +156,7 @@ export type CreateTaskRequest = {
   application?: string | null;
   include_action_history_in_verification?: boolean | null;
   max_screenshot_scrolls?: number | null;
+  browser_address?: string | null;
 };
 
 export type User = {
@@ -172,6 +185,48 @@ export type ApiKeyApiResponse = {
   valid: boolean;
 };
 
+export type OnePasswordTokenApiResponse = {
+  id: string;
+  organization_id: string;
+  token: string;
+  created_at: string;
+  modified_at: string;
+  token_type: string;
+  valid: boolean;
+};
+
+export type CreateOnePasswordTokenRequest = {
+  token: string;
+};
+
+export type CreateOnePasswordTokenResponse = {
+  token: OnePasswordTokenApiResponse;
+};
+
+export interface AzureClientSecretCredential {
+  tenant_id: string;
+  client_id: string;
+  client_secret: string;
+}
+
+export interface AzureOrganizationAuthToken {
+  id: string;
+  organization_id: string;
+  credential: AzureClientSecretCredential;
+  created_at: string;
+  modified_at: string;
+  token_type: string;
+  valid: boolean;
+}
+
+export interface CreateAzureClientSecretCredentialRequest {
+  credential: AzureClientSecretCredential;
+}
+
+export interface AzureClientSecretCredentialResponse {
+  token: AzureOrganizationAuthToken;
+}
+
 // TODO complete this
 export const ActionTypes = {
   InputText: "input_text",
@@ -191,6 +246,8 @@ export const ActionTypes = {
   VerificationCode: "verification_code",
   Drag: "drag",
   LeftMouse: "left_mouse",
+  GotoUrl: "goto_url",
+  ClosePage: "close_page",
 } as const;
 
 export type ActionType = (typeof ActionTypes)[keyof typeof ActionTypes];
@@ -215,6 +272,8 @@ export const ReadableActionTypes: {
   verification_code: "Verification Code",
   drag: "Drag",
   left_mouse: "Left Mouse",
+  goto_url: "Goto URL",
+  close_page: "Close Page",
 };
 
 export type Option = {
@@ -230,6 +289,7 @@ export type ActionApiResponse = {
   text: string | null;
   option: Option | null;
   file_url: string | null;
+  created_by: string | null;
 };
 
 export type Action = {
@@ -240,6 +300,7 @@ export type Action = {
   success: boolean;
   stepId: string;
   index: number;
+  created_by: string | null;
 };
 
 export type EvalKind = "workflow" | "task";
@@ -266,11 +327,21 @@ export interface EvalTask extends Eval {
 
 export type EvalApiResponse = EvalWorkflow[] | EvalTask[];
 
+export type DebugSessionApiResponse = {
+  debug_session_id: string;
+  browser_session_id: string;
+  workflow_permanent_id: string | null;
+  created_at: string;
+  modified_at: string;
+  vnc_streaming_supported: boolean | null;
+};
+
 export type WorkflowRunApiResponse = {
   created_at: string;
   failure_reason: string | null;
   modified_at: string;
   proxy_location: ProxyLocation | null;
+  script_run: boolean | null;
   status: Status;
   title?: string;
   webhook_callback_url: string;
@@ -288,12 +359,14 @@ export type WorkflowRunStatusApiResponse = {
   webhook_callback_url: string | null;
   extra_http_headers: Record<string, string> | null;
   created_at: string;
+  finished_at: string;
   modified_at: string;
   parameters: Record<string, unknown>;
   screenshot_urls: Array<string> | null;
   recording_url: string | null;
   outputs: Record<string, unknown> | null;
   failure_reason: string | null;
+  webhook_failure_reason: string | null;
   downloaded_file_urls: Array<string> | null;
   total_steps: number | null;
   total_cost: number | null;
@@ -301,6 +374,32 @@ export type WorkflowRunStatusApiResponse = {
   workflow_title: string | null;
   browser_session_id: string | null;
   max_screenshot_scrolls: number | null;
+};
+
+export type WorkflowRunStatusApiResponseWithWorkflow = {
+  workflow_id: string;
+  workflow_run_id: string;
+  status: Status;
+  proxy_location: ProxyLocation | null;
+  webhook_callback_url: string | null;
+  extra_http_headers: Record<string, string> | null;
+  created_at: string;
+  finished_at: string;
+  modified_at: string;
+  parameters: Record<string, unknown>;
+  screenshot_urls: Array<string> | null;
+  recording_url: string | null;
+  outputs: Record<string, unknown> | null;
+  failure_reason: string | null;
+  webhook_failure_reason: string | null;
+  downloaded_file_urls: Array<string> | null;
+  total_steps: number | null;
+  total_cost: number | null;
+  task_v2: TaskV2 | null;
+  workflow_title: string | null;
+  browser_session_id: string | null;
+  max_screenshot_scrolls: number | null;
+  workflow: WorkflowApiResponse;
 };
 
 export type TaskGenerationApiResponse = {
@@ -325,6 +424,8 @@ export type ActionsApiResponse = {
   reasoning: string | null;
   intention: string | null;
   response: string | null;
+  created_by: string | null;
+  text: string | null;
 };
 
 export type TaskV2 = {
@@ -340,6 +441,7 @@ export type TaskV2 = {
   output: Record<string, unknown> | null;
   summary: string | null;
   webhook_callback_url: string | null;
+  webhook_failure_reason: string | null;
   totp_verification_url: string | null;
   totp_identifier: string | null;
   proxy_location: ProxyLocation | null;
@@ -355,6 +457,7 @@ export type Createv2TaskRequest = {
 
 export type PasswordCredentialApiResponse = {
   username: string;
+  totp_type: "authenticator" | "email" | "text" | "none";
 };
 
 export type CreditCardCredentialApiResponse = {
@@ -391,6 +494,7 @@ export type PasswordCredential = {
   username: string;
   password: string;
   totp: string | null;
+  totp_type: "authenticator" | "email" | "text" | "none";
 };
 
 export type CreditCardCredential = {
@@ -400,6 +504,35 @@ export type CreditCardCredential = {
   card_exp_year: string;
   card_brand: string;
   card_holder_name: string;
+};
+
+export const OtpType = {
+  Totp: "totp",
+  MagicLink: "magic_link",
+} as const;
+
+export type OtpType = (typeof OtpType)[keyof typeof OtpType];
+
+export type TotpCode = {
+  totp_code_id: string;
+  totp_identifier: string | null;
+  code: string;
+  content: string;
+  workflow_run_id: string | null;
+  workflow_id: string | null;
+  task_id: string | null;
+  source: string | null;
+  otp_type: OtpType | null;
+  expired_at: string | null;
+  created_at: string;
+  modified_at: string;
+};
+
+export type TotpCodeListParams = {
+  totp_identifier?: string;
+  workflow_run_id?: string;
+  otp_type?: OtpType;
+  limit?: number;
 };
 
 export type ModelsResponse = {
@@ -418,3 +551,5 @@ export type RunEngine = (typeof RunEngine)[keyof typeof RunEngine];
 export type PylonEmailHash = {
   hash: string;
 };
+
+export const BROWSER_DOWNLOAD_TIMEOUT_SECONDS = 120 as const;

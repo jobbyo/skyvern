@@ -1,11 +1,11 @@
 import datetime
 
+import sqlalchemy
 from sqlalchemy import (
     JSON,
     Boolean,
     Column,
     DateTime,
-    Enum,
     ForeignKey,
     Index,
     Integer,
@@ -18,23 +18,31 @@ from sqlalchemy import (
 from sqlalchemy.ext.asyncio import AsyncAttrs
 from sqlalchemy.orm import DeclarativeBase
 
-from skyvern.forge.sdk.db.enums import OrganizationAuthTokenType, TaskType
+from skyvern.forge.sdk.db.enums import TaskType
 from skyvern.forge.sdk.db.id import (
     generate_action_id,
     generate_ai_suggestion_id,
     generate_artifact_id,
     generate_aws_secret_parameter_id,
+    generate_azure_vault_credential_parameter_id,
     generate_bitwarden_credit_card_data_parameter_id,
     generate_bitwarden_login_credential_parameter_id,
     generate_bitwarden_sensitive_information_parameter_id,
+    generate_browser_profile_id,
     generate_credential_id,
     generate_credential_parameter_id,
+    generate_debug_session_id,
+    generate_folder_id,
     generate_onepassword_credential_parameter_id,
     generate_org_id,
     generate_organization_auth_token_id,
     generate_organization_bitwarden_collection_id,
     generate_output_parameter_id,
     generate_persistent_browser_session_id,
+    generate_script_block_id,
+    generate_script_file_id,
+    generate_script_id,
+    generate_script_revision_id,
     generate_step_id,
     generate_task_generation_id,
     generate_task_id,
@@ -47,6 +55,7 @@ from skyvern.forge.sdk.db.id import (
     generate_workflow_permanent_id,
     generate_workflow_run_block_id,
     generate_workflow_run_id,
+    generate_workflow_script_id,
 )
 from skyvern.forge.sdk.schemas.task_v2 import ThoughtType
 
@@ -64,6 +73,7 @@ class TaskModel(Base):
     browser_session_id = Column(String, nullable=True, index=True)
     status = Column(String, index=True)
     webhook_callback_url = Column(String)
+    webhook_failure_reason = Column(String, nullable=True)
     totp_verification_url = Column(String)
     totp_identifier = Column(String)
     title = Column(String)
@@ -100,6 +110,8 @@ class TaskModel(Base):
         index=True,
     )
     model = Column(JSON, nullable=True)
+    browser_address = Column(String, nullable=True)
+    download_timeout = Column(Numeric, nullable=True)
 
 
 class StepModel(Base):
@@ -129,6 +141,7 @@ class StepModel(Base):
     reasoning_token_count = Column(Integer, default=0)
     cached_token_count = Column(Integer, default=0)
     step_cost = Column(Numeric, default=0)
+    finished_at = Column(DateTime, nullable=True)
 
 
 class OrganizationModel(Base):
@@ -162,8 +175,10 @@ class OrganizationAuthTokenModel(Base):
     )
 
     organization_id = Column(String, ForeignKey("organizations.organization_id"), index=True, nullable=False)
-    token_type = Column(Enum(OrganizationAuthTokenType), nullable=False)
-    token = Column(String, index=True, nullable=False)
+    token_type = Column(String, nullable=False)
+    token = Column(String, index=True, nullable=True)
+    encrypted_token = Column(String, index=True, nullable=True)
+    encrypted_method = Column(String, nullable=True)
     valid = Column(Boolean, nullable=False, default=True)
 
     created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
@@ -204,6 +219,28 @@ class ArtifactModel(Base):
     )
 
 
+class FolderModel(Base):
+    __tablename__ = "folders"
+    __table_args__ = (
+        Index("folder_organization_id_idx", "organization_id"),
+        Index("folder_organization_title_idx", "organization_id", "title"),
+    )
+
+    folder_id = Column(String, primary_key=True, default=generate_folder_id)
+    organization_id = Column(String, ForeignKey("organizations.organization_id", ondelete="CASCADE"), nullable=False)
+    title = Column(String, nullable=False)
+    description = Column(String, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    modified_at = Column(
+        DateTime,
+        default=datetime.datetime.utcnow,
+        onupdate=datetime.datetime.utcnow,
+        nullable=False,
+    )
+    deleted_at = Column(DateTime, nullable=True)
+
+
 class WorkflowModel(Base):
     __tablename__ = "workflows"
     __table_args__ = (
@@ -216,6 +253,7 @@ class WorkflowModel(Base):
         Index("permanent_id_version_idx", "workflow_permanent_id", "version"),
         Index("organization_id_title_idx", "organization_id", "title"),
         Index("workflow_oid_status_idx", "organization_id", "status"),
+        Index("workflow_folder_id_idx", "folder_id"),
     )
 
     workflow_id = Column(String, primary_key=True, default=generate_workflow_id)
@@ -232,6 +270,14 @@ class WorkflowModel(Base):
     persist_browser_session = Column(Boolean, default=False, nullable=False)
     model = Column(JSON, nullable=True)
     status = Column(String, nullable=False, default="published")
+    generate_script = Column(Boolean, default=False, nullable=False)
+    run_with = Column(String, nullable=True)  # 'agent' or 'code'
+    ai_fallback = Column(Boolean, default=False, nullable=False)
+    cache_key = Column(String, nullable=True)
+    run_sequentially = Column(Boolean, nullable=True)
+    sequential_key = Column(String, nullable=True)
+    folder_id = Column(String, ForeignKey("folders.folder_id", ondelete="SET NULL"), nullable=True)
+    import_error = Column(String, nullable=True)  # Error message if import failed
 
     created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
     modified_at = Column(
@@ -258,14 +304,25 @@ class WorkflowRunModel(Base):
     parent_workflow_run_id = Column(String, nullable=True, index=True)
     organization_id = Column(String, nullable=False, index=True)
     browser_session_id = Column(String, nullable=True, index=True)
+    browser_profile_id = Column(String, nullable=True, index=True)
     status = Column(String, nullable=False)
     failure_reason = Column(String)
     proxy_location = Column(String)
     webhook_callback_url = Column(String)
+    webhook_failure_reason = Column(String, nullable=True)
     totp_verification_url = Column(String)
     totp_identifier = Column(String)
     max_screenshot_scrolling_times = Column(Integer, nullable=True)
     extra_http_headers = Column(JSON, nullable=True)
+    browser_address = Column(String, nullable=True)
+    script_run = Column(JSON, nullable=True)
+    job_id = Column(String, nullable=True, index=True)
+    depends_on_workflow_run_id = Column(String, nullable=True, index=True)
+    sequential_key = Column(String, nullable=True)
+    run_with = Column(String, nullable=True)  # 'agent' or 'code'
+    debug_session_id: Column = Column(String, nullable=True)
+    ai_fallback = Column(Boolean, nullable=True)
+    code_gen = Column(Boolean, nullable=True)
 
     queued_at = Column(DateTime, nullable=True)
     started_at = Column(DateTime, nullable=True)
@@ -451,6 +508,30 @@ class OnePasswordCredentialParameterModel(Base):
     deleted_at = Column(DateTime, nullable=True)
 
 
+class AzureVaultCredentialParameterModel(Base):
+    __tablename__ = "azure_vault_credential_parameters"
+
+    azure_vault_credential_parameter_id = Column(
+        String, primary_key=True, default=generate_azure_vault_credential_parameter_id
+    )
+    workflow_id = Column(String, index=True, nullable=False)
+    key = Column(String, nullable=False)
+    description = Column(String, nullable=True)
+    vault_name = Column(String, nullable=False)
+    username_key = Column(String, nullable=False)
+    password_key = Column(String, nullable=False)
+    totp_secret_key = Column(String, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    modified_at = Column(
+        DateTime,
+        default=datetime.datetime.utcnow,
+        onupdate=datetime.datetime.utcnow,
+        nullable=False,
+    )
+    deleted_at = Column(DateTime, nullable=True)
+
+
 class WorkflowRunParameterModel(Base):
     __tablename__ = "workflow_run_parameters"
 
@@ -526,6 +607,10 @@ class AISuggestionModel(Base):
 
 class TOTPCodeModel(Base):
     __tablename__ = "totp_codes"
+    __table_args__ = (
+        Index("ix_totp_codes_org_created_at", "organization_id", "created_at"),
+        Index("ix_totp_codes_otp_type", "organization_id", "otp_type"),
+    )
 
     totp_code_id = Column(String, primary_key=True, default=generate_totp_code_id)
     totp_identifier = Column(String, nullable=False, index=True)
@@ -539,6 +624,7 @@ class TOTPCodeModel(Base):
     created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False, index=True)
     modified_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow, nullable=False)
     expired_at = Column(DateTime, index=True)
+    otp_type = Column(String, server_default=sqlalchemy.text("'totp'"))
 
 
 class ActionModel(Base):
@@ -565,15 +651,20 @@ class ActionModel(Base):
     skyvern_element_hash = Column(String, nullable=True)
     skyvern_element_data = Column(JSON, nullable=True)
     action_json = Column(JSON, nullable=True)
+    input_or_select_context = Column(JSON, nullable=True)
     confidence_float = Column(Numeric, nullable=True)
 
     created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
     modified_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow, nullable=False)
+    created_by = Column(String, nullable=True)
 
 
 class WorkflowRunBlockModel(Base):
     __tablename__ = "workflow_run_blocks"
-    __table_args__ = (Index("wfrb_org_wfr_index", "organization_id", "workflow_run_id"),)
+    __table_args__ = (
+        Index("wfrb_org_wfr_index", "organization_id", "workflow_run_id"),
+        Index("ix_workflow_run_blocks_org_created_at", "organization_id", "created_at"),
+    )
 
     workflow_run_block_id = Column(String, primary_key=True, default=generate_workflow_run_block_id)
     workflow_run_id = Column(String, nullable=False)
@@ -617,13 +708,21 @@ class WorkflowRunBlockModel(Base):
     http_request_timeout = Column(Integer, nullable=True)
     http_request_follow_redirects = Column(Boolean, nullable=True)
 
+    # human interaction block
+    instructions = Column(String, nullable=True)
+    positive_descriptor = Column(String, nullable=True)
+    negative_descriptor = Column(String, nullable=True)
+
     created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
     modified_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow, nullable=False)
 
 
 class TaskV2Model(Base):
     __tablename__ = "observer_cruises"
-    __table_args__ = (Index("oc_org_wfr_index", "organization_id", "workflow_run_id"),)
+    __table_args__ = (
+        Index("oc_org_wfr_index", "organization_id", "workflow_run_id"),
+        Index("ix_observer_cruises_org_created_at", "organization_id", "created_at"),
+    )
 
     # observer_cruise_id is the task_id for task v2
     observer_cruise_id = Column(String, primary_key=True, default=generate_task_v2_id)
@@ -638,6 +737,7 @@ class TaskV2Model(Base):
     summary = Column(String, nullable=True)
     output = Column(JSON, nullable=True)
     webhook_callback_url = Column(String, nullable=True)
+    webhook_failure_reason = Column(String, nullable=True)
     totp_verification_url = Column(String, nullable=True)
     totp_identifier = Column(String, nullable=True)
     proxy_location = Column(String, nullable=True)
@@ -646,6 +746,9 @@ class TaskV2Model(Base):
     max_steps = Column(Integer, nullable=True)
     max_screenshot_scrolling_times = Column(Integer, nullable=True)
     extra_http_headers = Column(JSON, nullable=True)
+    browser_address = Column(String, nullable=True)
+    generate_script = Column(Boolean, default=False, nullable=False)
+    run_with = Column(String, nullable=True)  # 'agent' or 'code'
 
     queued_at = Column(DateTime, nullable=True)
     started_at = Column(DateTime, nullable=True)
@@ -658,7 +761,10 @@ class TaskV2Model(Base):
 
 class ThoughtModel(Base):
     __tablename__ = "observer_thoughts"
-    __table_args__ = (Index("observer_cruise_index", "organization_id", "observer_cruise_id"),)
+    __table_args__ = (
+        Index("observer_cruise_index", "organization_id", "observer_cruise_id"),
+        Index("ix_observer_thoughts_org_created_at", "organization_id", "created_at"),
+    )
 
     observer_thought_id = Column(String, primary_key=True, default=generate_thought_id)
     organization_id = Column(String, nullable=True)
@@ -698,9 +804,27 @@ class PersistentBrowserSessionModel(Base):
     timeout_minutes = Column(Integer, nullable=True)
     ip_address = Column(String, nullable=True)
     ecs_task_arn = Column(String, nullable=True)
+    proxy_location = Column(String, nullable=True)
     started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False, index=True)
+    modified_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow, nullable=False)
+    deleted_at = Column(DateTime, nullable=True)
+
+
+class BrowserProfileModel(Base):
+    __tablename__ = "browser_profiles"
+    __table_args__ = (
+        Index("idx_browser_profiles_org", "organization_id"),
+        Index("idx_browser_profiles_org_name", "organization_id", "name"),
+        UniqueConstraint("organization_id", "name", name="uc_org_browser_profile_name"),
+    )
+
+    browser_profile_id = Column(String, primary_key=True, default=generate_browser_profile_id)
+    organization_id = Column(String, nullable=False)
+    name = Column(String, nullable=False)
+    description = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
     modified_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow, nullable=False)
     deleted_at = Column(DateTime, nullable=True)
 
@@ -710,6 +834,7 @@ class TaskRunModel(Base):
     __table_args__ = (
         Index("task_run_org_url_index", "organization_id", "url_hash", "cached"),
         Index("task_run_org_run_id_index", "organization_id", "run_id"),
+        Index("ix_task_runs_org_created_at", "organization_id", "created_at"),
     )
 
     task_run_id = Column(String, primary_key=True, default=generate_task_run_id)
@@ -736,6 +861,7 @@ class OrganizationBitwardenCollectionModel(Base):
 
     created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
     modified_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow, nullable=False)
+    deleted_at = Column(DateTime, nullable=True)
 
 
 class CredentialModel(Base):
@@ -743,10 +869,159 @@ class CredentialModel(Base):
 
     credential_id = Column(String, primary_key=True, default=generate_credential_id)
     organization_id = Column(String, nullable=False)
+    vault_type = Column(String, nullable=True)
     item_id = Column(String, nullable=True)
 
     name = Column(String, nullable=False)
     credential_type = Column(String, nullable=False)
+    username = Column(String, nullable=True)
+    totp_type = Column(String, nullable=False, default="none")
+    totp_identifier = Column(String, nullable=True, default=None)
+    card_last4 = Column(String, nullable=True)
+    card_brand = Column(String, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    modified_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow, nullable=False)
+    deleted_at = Column(DateTime, nullable=True)
+
+
+class DebugSessionModel(Base):
+    __tablename__ = "debug_sessions"
+
+    debug_session_id = Column(String, primary_key=True, default=generate_debug_session_id)
+    organization_id = Column(String, nullable=False)
+    browser_session_id = Column(String, nullable=False)
+    vnc_streaming_supported = Column(Boolean, nullable=True, server_default=sqlalchemy.true())
+    workflow_permanent_id = Column(String, nullable=True)
+    user_id = Column(String, nullable=True)  # comes from identity vendor (Clerk at time of writing)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    modified_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow, nullable=False)
+    deleted_at = Column(DateTime, nullable=True)
+    status = Column(String, nullable=False, default="created")
+
+
+class BlockRunModel(Base):
+    """
+    When a block is run in the debugger, it runs "as a 'workflow run'", but that
+    workflow run has just a single block in it. This table ties a block run to
+    the workflow run, and a particular output parameter id (which gets
+    overwritten on each run.)
+
+    Use the `created_at` timestamp to find the latest workflow run (and output
+    param id) for a given `(org_id, user_id, block_label)`.
+    """
+
+    __tablename__ = "block_runs"
+
+    organization_id = Column(String, nullable=False)
+    user_id = Column(String, nullable=False)
+    block_label = Column(String, nullable=False)
+    output_parameter_id = Column(String, nullable=False)
+    workflow_run_id = Column(String, primary_key=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+
+
+class ScriptModel(Base):
+    __tablename__ = "scripts"
+    __table_args__ = (
+        Index("script_org_created_at_index", "organization_id", "created_at"),
+        Index("script_org_run_id_index", "organization_id", "run_id"),
+        UniqueConstraint("organization_id", "script_id", "version", name="uc_org_script_version"),
+    )
+
+    script_revision_id = Column(String, primary_key=True, default=generate_script_revision_id)
+    script_id = Column(String, default=generate_script_id, nullable=False)  # User-facing, consistent across versions
+    organization_id = Column(String, nullable=False)
+    # The workflow run or task run id that this script is generated
+    run_id = Column(String, nullable=True)
+    version = Column(Integer, default=1, nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    modified_at = Column(
+        DateTime,
+        default=datetime.datetime.utcnow,
+        onupdate=datetime.datetime.utcnow,
+        nullable=False,
+    )
+    deleted_at = Column(DateTime, nullable=True)
+
+
+class ScriptFileModel(Base):
+    __tablename__ = "script_files"
+    __table_args__ = (
+        Index("file_script_path_index", "script_revision_id", "file_path"),
+        UniqueConstraint("script_revision_id", "file_path", name="unique_script_file_path"),
+    )
+
+    file_id = Column(String, primary_key=True, default=generate_script_file_id)
+    script_revision_id = Column(String, nullable=False)
+    script_id = Column(String, nullable=False)
+    organization_id = Column(String, nullable=False)
+
+    file_path = Column(String, nullable=False)  # e.g., "src/utils.py"
+    file_name = Column(String, nullable=False)  # e.g., "utils.py"
+    file_type = Column(String, nullable=False)  # "file" or "directory"
+
+    # File content and metadata
+    content_hash = Column(String, nullable=True)  # SHA-256 hash for deduplication
+    file_size = Column(Integer, nullable=True)  # Size in bytes
+    mime_type = Column(String, nullable=True)  # e.g., "text/python"
+    encoding = Column(String, default="utf-8", nullable=True)
+
+    # Storage reference (could be S3 key, artifact_id, etc.)
+    artifact_id = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    modified_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow, nullable=False)
+    deleted_at = Column(DateTime, nullable=True)
+
+
+class WorkflowScriptModel(Base):
+    __tablename__ = "workflow_scripts"
+    __table_args__ = (
+        Index("idx_workflow_scripts_org_created", "organization_id", "created_at"),
+        Index(
+            "idx_workflow_scripts_wpid_cache_key_value", "workflow_permanent_id", "cache_key_value", "workflow_run_id"
+        ),
+    )
+
+    workflow_script_id = Column(String, primary_key=True, default=generate_workflow_script_id)
+    script_id = Column(String, nullable=False)
+    organization_id = Column(String, nullable=False)
+    workflow_permanent_id = Column(String, nullable=False)
+    workflow_id = Column(String, nullable=True)
+    workflow_run_id = Column(String, nullable=True)
+    cache_key = Column(String, nullable=False)  # e.g. "test-{{ website_url }}-cache"
+    cache_key_value = Column(String, nullable=False)  # e.g. "test-greenhouse.io/job/1-cache"
+    status = Column(String, nullable=True, default="published")
+
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    modified_at = Column(
+        DateTime,
+        default=datetime.datetime.utcnow,
+        onupdate=datetime.datetime.utcnow,
+        nullable=False,
+    )
+    deleted_at = Column(DateTime, nullable=True)
+
+
+class ScriptBlockModel(Base):
+    __tablename__ = "script_blocks"
+    __table_args__ = (
+        UniqueConstraint(
+            "script_revision_id",
+            "script_block_label",
+            name="uc_script_revision_id_script_block_label",
+        ),
+    )
+
+    script_block_id = Column(String, primary_key=True, default=generate_script_block_id)
+    organization_id = Column(String, nullable=False)
+    script_id = Column(String, nullable=False)
+    script_revision_id = Column(String, nullable=False, index=True)
+    script_block_label = Column(String, nullable=False)
+    script_file_id = Column(String, nullable=True)
+    run_signature = Column(String, nullable=True)
+    workflow_run_id = Column(String, nullable=True)
+    workflow_run_block_id = Column(String, nullable=True)
 
     created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
     modified_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow, nullable=False)

@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from skyvern.forge.sdk.db.enums import OrganizationAuthTokenType
 
@@ -21,14 +21,63 @@ class Organization(BaseModel):
     modified_at: datetime
 
 
-class OrganizationAuthToken(BaseModel):
+class OrganizationAuthTokenBase(BaseModel):
     id: str
     organization_id: str
     token_type: OrganizationAuthTokenType
-    token: str
     valid: bool
     created_at: datetime
     modified_at: datetime
+
+
+class OrganizationAuthToken(OrganizationAuthTokenBase):
+    token: str
+
+
+class AzureClientSecretCredential(BaseModel):
+    tenant_id: str
+    client_id: str
+    client_secret: str
+
+
+class AzureOrganizationAuthToken(OrganizationAuthTokenBase):
+    """Represents OrganizationAuthToken for Azure; defined by 3 fields: tenant_id, client_id, and client_secret"""
+
+    credential: AzureClientSecretCredential
+
+
+class CreateOnePasswordTokenRequest(BaseModel):
+    """Request model for creating or updating a 1Password service account token."""
+
+    token: str = Field(
+        ...,
+        description="The 1Password service account token",
+        examples=["op_1234567890abcdef"],
+    )
+
+
+class CreateOnePasswordTokenResponse(BaseModel):
+    """Response model for 1Password token operations."""
+
+    token: OrganizationAuthToken = Field(
+        ...,
+        description="The created or updated 1Password service account token",
+    )
+
+
+class AzureClientSecretCredentialResponse(BaseModel):
+    """Response model for Azure ClientSecretCredential operations."""
+
+    token: AzureOrganizationAuthToken = Field(
+        ...,
+        description="The created or updated Azure ClientSecretCredential",
+    )
+
+
+class CreateAzureClientSecretCredentialRequest(BaseModel):
+    """Request model for creating or updating an Azure ClientSecretCredential."""
+
+    credential: AzureClientSecretCredential
 
 
 class GetOrganizationsResponse(BaseModel):

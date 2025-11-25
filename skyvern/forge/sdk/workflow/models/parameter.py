@@ -8,7 +8,15 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from skyvern.exceptions import InvalidWorkflowParameter
 
-RESERVED_PARAMETER_KEYS = ["current_item", "current_value", "current_index"]
+RESERVED_PARAMETER_KEYS = [
+    "current_item",
+    "current_value",
+    "current_index",
+    "workflow_title",
+    "workflow_id",
+    "workflow_permanent_id",
+    "workflow_run_id",
+]
 
 
 class ParameterType(StrEnum):
@@ -19,8 +27,22 @@ class ParameterType(StrEnum):
     BITWARDEN_SENSITIVE_INFORMATION = "bitwarden_sensitive_information"
     BITWARDEN_CREDIT_CARD_DATA = "bitwarden_credit_card_data"
     ONEPASSWORD = "onepassword"
+    AZURE_VAULT_CREDENTIAL = "azure_vault_credential"
     OUTPUT = "output"
     CREDENTIAL = "credential"
+    AZURE_SECRET = "azure_secret"
+
+    def is_secret_or_credential(self) -> bool:
+        return self in [
+            ParameterType.AWS_SECRET,
+            ParameterType.BITWARDEN_LOGIN_CREDENTIAL,
+            ParameterType.BITWARDEN_SENSITIVE_INFORMATION,
+            ParameterType.BITWARDEN_CREDIT_CARD_DATA,
+            ParameterType.ONEPASSWORD,
+            ParameterType.AZURE_VAULT_CREDENTIAL,
+            ParameterType.CREDENTIAL,
+            ParameterType.AZURE_SECRET,
+        ]
 
 
 class Parameter(BaseModel, abc.ABC):
@@ -43,6 +65,18 @@ class AWSSecretParameter(Parameter):
     aws_secret_parameter_id: str
     workflow_id: str
     aws_key: str
+
+    created_at: datetime
+    modified_at: datetime
+    deleted_at: datetime | None = None
+
+
+class AzureSecretParameter(Parameter):
+    parameter_type: Literal[ParameterType.AZURE_SECRET] = ParameterType.AZURE_SECRET
+
+    azure_secret_parameter_id: str
+    workflow_id: str
+    azure_key: str
 
     created_at: datetime
     modified_at: datetime
@@ -141,6 +175,21 @@ class OnePasswordCredentialParameter(Parameter):
     deleted_at: datetime | None = None
 
 
+class AzureVaultCredentialParameter(Parameter):
+    parameter_type: Literal[ParameterType.AZURE_VAULT_CREDENTIAL] = ParameterType.AZURE_VAULT_CREDENTIAL
+
+    azure_vault_credential_parameter_id: str
+    workflow_id: str
+    vault_name: str
+    username_key: str
+    password_key: str
+    totp_secret_key: str | None = None
+
+    created_at: datetime
+    modified_at: datetime
+    deleted_at: datetime | None = None
+
+
 class WorkflowParameterType(StrEnum):
     STRING = "string"
     INTEGER = "integer"
@@ -149,6 +198,9 @@ class WorkflowParameterType(StrEnum):
     JSON = "json"
     FILE_URL = "file_url"
     CREDENTIAL_ID = "credential_id"
+
+    def is_credential_type(self) -> bool:
+        return self == WorkflowParameterType.CREDENTIAL_ID
 
     def convert_value(self, value: Any) -> str | int | float | bool | dict | list | None:
         if value is None:
@@ -214,10 +266,12 @@ ParameterSubclasses = Union[
     WorkflowParameter,
     ContextParameter,
     AWSSecretParameter,
+    AzureSecretParameter,
     BitwardenLoginCredentialParameter,
     BitwardenSensitiveInformationParameter,
     BitwardenCreditCardDataParameter,
     OnePasswordCredentialParameter,
+    AzureVaultCredentialParameter,
     OutputParameter,
     CredentialParameter,
 ]

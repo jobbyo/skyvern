@@ -38,6 +38,10 @@ class TaskBase(BaseModel):
         description="The URL to call when the task is completed.",
         examples=["https://my-webhook.com"],
     )
+    webhook_failure_reason: str | None = Field(
+        default=None,
+        description="The reason for the webhook failure.",
+    )
     totp_verification_url: str | None = None
     totp_identifier: str | None = None
     navigation_goal: str | None = Field(
@@ -104,6 +108,16 @@ class TaskBase(BaseModel):
         description="The maximum number of scrolls for the post action screenshot. When it's None or 0, it takes the current viewpoint screenshot.",
         examples=[10],
     )
+    browser_address: str | None = Field(
+        default=None,
+        description="The CDP address for the task.",
+        examples=["http://127.0.0.1:9222", "ws://127.0.0.1:9222/devtools/browser/1234567890"],
+    )
+    download_timeout: float | None = Field(
+        default=None,
+        description="The maximum time to wait for downloads to complete, in seconds. If not set, defaults to BROWSER_DOWNLOAD_TIMEOUT seconds.",
+        examples=[15.0],
+    )
 
 
 class TaskRequest(TaskBase):
@@ -140,10 +154,33 @@ class TaskRequest(TaskBase):
     @field_validator("webhook_callback_url", "totp_verification_url")
     @classmethod
     def validate_optional_urls(cls, url: str | None) -> str | None:
-        if url is None:
-            return None
+        if not url:
+            return url
 
         return validate_url(url)
+
+
+class PromptedTaskRequest(TaskRequest):
+    ai_fallback: bool | None = Field(
+        default=False,
+        description="Whether to use AI fallback when the task fails.",
+        examples=[True, False],
+    )
+    publish_workflow: bool | None = Field(
+        default=False,
+        description="Whether to publish the workflow created from the prompt.",
+        examples=[True, False],
+    )
+    run_with: str | None = Field(
+        default=None,
+        description="The executor to run the task with.",
+        examples=["code", "agent"],
+    )
+    user_prompt: str = Field(
+        ...,
+        description="The user's prompt for the task.",
+        examples=["Get a quote for car insurance"],
+    )
 
 
 class TaskStatus(StrEnum):
@@ -286,7 +323,7 @@ class Task(TaskBase):
             raise ValueError(f"status_requires_failure_reason({status},{self.task_id}")
 
         if status.requires_extracted_info() and self.data_extraction_goal and extracted_information is None:
-            raise ValueError(f"status_requires_extracted_information({status},{self.task_id}")
+            raise ValueError(f"status_requires_extracted_information({status},{self.task_id})")
 
         if status.cant_have_extracted_info() and extracted_information is not None:
             raise ValueError(f"status_cant_have_extracted_information({self.task_id})")
@@ -314,6 +351,7 @@ class Task(TaskBase):
             finished_at=self.finished_at,
             extracted_information=self.extracted_information,
             failure_reason=failure_reason or self.failure_reason,
+            webhook_failure_reason=self.webhook_failure_reason,
             action_screenshot_urls=action_screenshot_urls,
             screenshot_url=screenshot_url,
             recording_url=recording_url,
@@ -341,6 +379,7 @@ class TaskResponse(BaseModel):
     downloaded_files: list[FileInfo] | None = None
     downloaded_file_urls: list[str] | None = None
     failure_reason: str | None = None
+    webhook_failure_reason: str | None = None
     errors: list[dict[str, Any]] = []
     max_steps_per_run: int | None = None
     workflow_run_id: str | None = None

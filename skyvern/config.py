@@ -1,11 +1,30 @@
+import logging
+import platform
+from typing import Any
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from skyvern import constants
 from skyvern.constants import SKYVERN_DIR
+from skyvern.utils.env_paths import resolve_backend_env_path
+
+# NOTE: _DEFAULT_ENV_FILES resolves .env paths at import time and assumes
+# the process has changed dir to the desired project root by this time.
+# Even if we were to resolve paths at instantiation time, the global `settings`
+# singleton instantiation at the bottom of this file also runs at import time
+# and relies on the same assumption.
+_DEFAULT_ENV_FILES = (
+    resolve_backend_env_path(".env"),
+    resolve_backend_env_path(".env.staging"),
+    resolve_backend_env_path(".env.prod"),
+)
+
+
+LOG = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=(".env", ".env.staging", ".env.prod"), extra="ignore")
+    model_config = SettingsConfigDict(env_file=_DEFAULT_ENV_FILES, extra="ignore")
 
     # settings for experimentation
     ENABLE_EXP_ALL_TEXTUAL_ELEMENTS_INTERACTABLE: bool = False
@@ -22,7 +41,8 @@ class Settings(BaseSettings):
     TEMP_PATH: str = "./temp"
     BROWSER_ACTION_TIMEOUT_MS: int = 5000
     BROWSER_SCREENSHOT_TIMEOUT_MS: int = 20000
-    BROWSER_LOADING_TIMEOUT_MS: int = 90000
+    BROWSER_LOADING_TIMEOUT_MS: int = 60000
+    BROWSER_SCRAPING_BUILDING_ELEMENT_TREE_TIMEOUT_MS: int = 60 * 1000  # 1 minute
     OPTION_LOADING_TIMEOUT_MS: int = 600000
     MAX_STEPS_PER_RUN: int = 10
     MAX_STEPS_PER_TASK_V2: int = 25
@@ -33,7 +53,11 @@ class Settings(BaseSettings):
     LONG_RUNNING_TASK_WARNING_RATIO: float = 0.95
     MAX_RETRIES_PER_STEP: int = 5
     DEBUG_MODE: bool = False
-    DATABASE_STRING: str = "postgresql+psycopg://skyvern@localhost/skyvern"
+    DATABASE_STRING: str = (
+        "postgresql+asyncpg://skyvern@localhost/skyvern"
+        if platform.system() == "Windows"
+        else "postgresql+psycopg://skyvern@localhost/skyvern"
+    )
     DATABASE_STATEMENT_TIMEOUT_MS: int = 60000
     DISABLE_CONNECTION_POOL: bool = False
     PROMPT_ACTION_HISTORY_WINDOW: int = 1
@@ -75,8 +99,18 @@ class Settings(BaseSettings):
     MAX_UPLOAD_FILE_SIZE: int = 10 * 1024 * 1024  # 10 MB
     PRESIGNED_URL_EXPIRATION: int = 60 * 60 * 24  # 24 hours
 
+    # Azure Blob Storage settings
+    AZURE_STORAGE_ACCOUNT_NAME: str | None = None
+    AZURE_STORAGE_ACCOUNT_KEY: str | None = None
+
     SKYVERN_TELEMETRY: bool = True
     ANALYTICS_ID: str = "anonymous"
+
+    # email settings
+    SMTP_HOST: str = "localhost"
+    SMTP_PORT: int = 25
+    SMTP_USERNAME: str = "username"
+    SMTP_PASSWORD: str = "password"
 
     # browser settings
     BROWSER_LOCALE: str = "en-US"
@@ -84,6 +118,7 @@ class Settings(BaseSettings):
     BROWSER_WIDTH: int = 1920
     BROWSER_HEIGHT: int = 1080
     BROWSER_POLICY_FILE: str = "/etc/chromium/policies/managed/policies.json"
+    BROWSER_LOGS_ENABLED: bool = True
 
     # Add extension folders name here to load extension in your browser
     EXTENSIONS_BASE_PATH: str = "./extensions"
@@ -91,6 +126,7 @@ class Settings(BaseSettings):
 
     # Workflow constant parameters
     WORKFLOW_DOWNLOAD_DIRECTORY_PARAMETER_KEY: str = "SKYVERN_DOWNLOAD_DIRECTORY"
+    WORKFLOW_TEMPLATING_STRICTNESS: str = "lax"  # options: "strict", "lax"
     WORKFLOW_WAIT_BLOCK_MAX_SEC: int = 30 * 60
 
     # Saved browser session settings
@@ -113,8 +149,16 @@ class Settings(BaseSettings):
     LLM_API_KEY: str | None = None  # API key for the model
     SECONDARY_LLM_KEY: str | None = None
     SELECT_AGENT_LLM_KEY: str | None = None
+    NORMAL_SELECT_AGENT_LLM_KEY: str | None = None
+    CUSTOM_SELECT_AGENT_LLM_KEY: str | None = None
     SINGLE_CLICK_AGENT_LLM_KEY: str | None = None
+    SINGLE_INPUT_AGENT_LLM_KEY: str | None = None
     PROMPT_BLOCK_LLM_KEY: str | None = None
+    PARSE_SELECT_LLM_KEY: str | None = None
+    EXTRACTION_LLM_KEY: str | None = None
+    CHECK_USER_GOAL_LLM_KEY: str | None = None
+    AUTO_COMPLETION_LLM_KEY: str | None = None
+    SCRIPT_GENERATION_LLM_KEY: str | None = None
     # COMMON
     LLM_CONFIG_TIMEOUT: int = 300
     LLM_CONFIG_MAX_TOKENS: int = 4096
@@ -135,6 +179,7 @@ class Settings(BaseSettings):
     ENABLE_OPENAI_COMPATIBLE: bool = False
     # OPENAI
     OPENAI_API_KEY: str | None = None
+    GPT5_REASONING_EFFORT: str | None = "medium"
     # ANTHROPIC
     ANTHROPIC_API_KEY: str | None = None
     ANTHROPIC_CUA_LLM_KEY: str = "ANTHROPIC_CLAUDE3.7_SONNET"
@@ -214,8 +259,31 @@ class Settings(BaseSettings):
     AZURE_O3_API_BASE: str | None = None
     AZURE_O3_API_VERSION: str = "2025-01-01-preview"
 
+    # AZURE gpt-5
+    ENABLE_AZURE_GPT5: bool = False
+    AZURE_GPT5_DEPLOYMENT: str = "gpt-5"
+    AZURE_GPT5_API_KEY: str | None = None
+    AZURE_GPT5_API_BASE: str | None = None
+    AZURE_GPT5_API_VERSION: str = "2025-04-01-preview"
+
+    # AZURE gpt-5 mini
+    ENABLE_AZURE_GPT5_MINI: bool = False
+    AZURE_GPT5_MINI_DEPLOYMENT: str = "gpt-5-mini"
+    AZURE_GPT5_MINI_API_KEY: str | None = None
+    AZURE_GPT5_MINI_API_BASE: str | None = None
+    AZURE_GPT5_MINI_API_VERSION: str = "2025-04-01-preview"
+
+    # AZURE gpt-5 nano
+    ENABLE_AZURE_GPT5_NANO: bool = False
+    AZURE_GPT5_NANO_DEPLOYMENT: str = "gpt-5-nano"
+    AZURE_GPT5_NANO_API_KEY: str | None = None
+    AZURE_GPT5_NANO_API_BASE: str | None = None
+    AZURE_GPT5_NANO_API_VERSION: str = "2025-04-01-preview"
+
     # GEMINI
     GEMINI_API_KEY: str | None = None
+    GEMINI_INCLUDE_THOUGHT: bool = False
+    GEMINI_THINKING_BUDGET: int | None = None
 
     # VERTEX_AI
     VERTEX_CREDENTIALS: str | None = None
@@ -236,13 +304,18 @@ class Settings(BaseSettings):
     ENABLE_OPENROUTER: bool = False
     OPENROUTER_API_KEY: str | None = None
     OPENROUTER_MODEL: str | None = None
-    OPENROUTER_API_BASE: str = "https://api.openrouter.ai/v1"
+    OPENROUTER_API_BASE: str = "https://openrouter.ai/api/v1"
 
     # GROQ
     ENABLE_GROQ: bool = False
     GROQ_API_KEY: str | None = None
     GROQ_MODEL: str | None = None
     GROQ_API_BASE: str = "https://api.groq.com/openai/v1"
+
+    # MOONSHOT AI
+    ENABLE_MOONSHOT: bool = False
+    MOONSHOT_API_KEY: str | None = None
+    MOONSHOT_API_BASE: str = "https://api.moonshot.cn/v1"
 
     # TOTP Settings
     TOTP_LIFESPAN_MINUTES: int = 10
@@ -253,7 +326,18 @@ class Settings(BaseSettings):
     BITWARDEN_CLIENT_ID: str | None = None
     BITWARDEN_CLIENT_SECRET: str | None = None
     BITWARDEN_MASTER_PASSWORD: str | None = None
+    BITWARDEN_EMAIL: str | None = None
     OP_SERVICE_ACCOUNT_TOKEN: str | None = None
+
+    # Where credentials are stored: bitwarden or azure_vault
+    CREDENTIAL_VAULT_TYPE: str = "bitwarden"
+
+    # Azure Setting
+    AZURE_TENANT_ID: str | None = None
+    AZURE_CLIENT_ID: str | None = None
+    AZURE_CLIENT_SECRET: str | None = None
+    # The Azure Key Vault name to store credentials
+    AZURE_CREDENTIAL_VAULT: str | None = None
 
     # Skyvern Auth Bitwarden Settings
     SKYVERN_AUTH_BITWARDEN_CLIENT_ID: str | None = None
@@ -267,7 +351,7 @@ class Settings(BaseSettings):
     SVG_MAX_LENGTH: int = 100000
 
     ENABLE_LOG_ARTIFACTS: bool = False
-    ENABLE_CODE_BLOCK: bool = False
+    ENABLE_CODE_BLOCK: bool = True
 
     TASK_BLOCKED_SITE_FALLBACK_URL: str = "https://www.google.com"
 
@@ -289,9 +373,31 @@ class Settings(BaseSettings):
 
     # Trace settings
     TRACE_ENABLED: bool = False
-    TRACE_PROVIDER: str = "lmnr"
+    TRACE_PROVIDER: str = ""
     TRACE_PROVIDER_HOST: str | None = None
     TRACE_PROVIDER_API_KEY: str = "fillmein"
+
+    # Debug Session Settings
+    DEBUG_SESSION_TIMEOUT_MINUTES: int = 20
+    """
+    The timeout for a persistent browser session backing a debug session,
+    in minutes.
+    """
+
+    DEBUG_SESSION_TIMEOUT_THRESHOLD_MINUTES: int = 5
+    """
+    If there are `DEBUG_SESSION_TIMEOUT_THRESHOLD_MINUTES` or more minutes left
+    in the persistent browser session (`started_at` + `timeout_minutes`), then
+    the `timeout_minutes` of the persistent browser session can be extended.
+    Otherwise we'll consider the persistent browser session to be expired.
+    """
+
+    ENCRYPTOR_AES_SECRET_KEY: str = "fillmein"
+    ENCRYPTOR_AES_SALT: str | None = None
+    ENCRYPTOR_AES_IV: str | None = None
+
+    # script generation settings
+    WORKFLOW_START_BLOCK_LABEL: str = "__start_block__"
 
     def get_model_name_to_llm_key(self) -> dict[str, dict[str, str]]:
         """
@@ -302,12 +408,18 @@ class Settings(BaseSettings):
         if self.is_cloud_environment():
             return {
                 "gemini-2.5-pro-preview-05-06": {"llm_key": "VERTEX_GEMINI_2.5_PRO", "label": "Gemini 2.5 Pro"},
-                "gemini-2.5-flash-preview-05-20": {
+                "gemini-2.5-flash": {
                     "llm_key": "VERTEX_GEMINI_2.5_FLASH",
                     "label": "Gemini 2.5 Flash",
                 },
+                "gemini-3-pro-preview": {"llm_key": "VERTEX_GEMINI_3.0_PRO", "label": "Gemini 3 Pro"},
+                "gemini-2.5-flash-lite": {
+                    "llm_key": "VERTEX_GEMINI_2.5_FLASH_LITE",
+                    "label": "Gemini 2.5 Flash Lite",
+                },
                 "azure/gpt-4.1": {"llm_key": "AZURE_OPENAI_GPT4_1", "label": "GPT 4.1"},
-                "azure/o4-mini": {"llm_key": "AZURE_OPENAI_O4_MINI", "label": "GPT O4 Mini"},
+                "azure/gpt-5": {"llm_key": "AZURE_OPENAI_GPT5", "label": "GPT 5"},
+                "azure/o3": {"llm_key": "AZURE_OPENAI_O3", "label": "GPT O3"},
                 "us.anthropic.claude-opus-4-20250514-v1:0": {
                     "llm_key": "BEDROCK_ANTHROPIC_CLAUDE4_OPUS_INFERENCE_PROFILE",
                     "label": "Anthropic Claude 4 Opus",
@@ -316,17 +428,35 @@ class Settings(BaseSettings):
                     "llm_key": "BEDROCK_ANTHROPIC_CLAUDE4_SONNET_INFERENCE_PROFILE",
                     "label": "Anthropic Claude 4 Sonnet",
                 },
+                "claude-haiku-4-5-20251001": {
+                    "llm_key": "ANTHROPIC_CLAUDE4.5_HAIKU",
+                    "label": "Anthropic Claude 4.5 Haiku",
+                },
+                # "claude-sonnet-4-20250514": {
+                #     "llm_key": "ANTHROPIC_CLAUDE4_SONNET",
+                #     "label": "Anthropic Claude 4 Sonnet",
+                # },
+                # "claude-opus-4-20250514": {
+                #     "llm_key": "ANTHROPIC_CLAUDE4_OPUS",
+                #     "label": "Anthropic Claude 4 Opus",
+                # },
             }
         else:
             # TODO: apparently the list for OSS is to be much larger
             return {
                 "gemini-2.5-pro-preview-05-06": {"llm_key": "VERTEX_GEMINI_2.5_PRO", "label": "Gemini 2.5 Pro"},
-                "gemini-2.5-flash-preview-05-20": {
+                "gemini-2.5-flash": {
                     "llm_key": "VERTEX_GEMINI_2.5_FLASH",
                     "label": "Gemini 2.5 Flash",
                 },
+                "gemini-3-pro-preview": {"llm_key": "VERTEX_GEMINI_3.0_PRO", "label": "Gemini 3 Pro"},
+                "gemini-2.5-flash-lite": {
+                    "llm_key": "VERTEX_GEMINI_2.5_FLASH_LITE",
+                    "label": "Gemini 2.5 Flash Lite",
+                },
                 "azure/gpt-4.1": {"llm_key": "AZURE_OPENAI_GPT4_1", "label": "GPT 4.1"},
-                "azure/o4-mini": {"llm_key": "AZURE_OPENAI_O4_MINI", "label": "GPT O4 Mini"},
+                "azure/gpt-5": {"llm_key": "AZURE_OPENAI_GPT5", "label": "GPT 5"},
+                "azure/o3": {"llm_key": "AZURE_OPENAI_O3", "label": "GPT O3"},
                 "us.anthropic.claude-opus-4-20250514-v1:0": {
                     "llm_key": "BEDROCK_ANTHROPIC_CLAUDE4_OPUS_INFERENCE_PROFILE",
                     "label": "Anthropic Claude 4 Opus",
@@ -335,7 +465,34 @@ class Settings(BaseSettings):
                     "llm_key": "BEDROCK_ANTHROPIC_CLAUDE4_SONNET_INFERENCE_PROFILE",
                     "label": "Anthropic Claude 4 Sonnet",
                 },
+                "claude-haiku-4-5-20251001": {
+                    "llm_key": "ANTHROPIC_CLAUDE4.5_HAIKU",
+                    "label": "Anthropic Claude 4.5 Haiku",
+                },
             }
+
+    def model_post_init(self, __context: Any) -> None:  # type: ignore[override]
+        super().model_post_init(__context)
+        if platform.system() != "Windows":
+            return
+
+        scheme, sep, remainder = self.DATABASE_STRING.partition("://")
+        if not sep:
+            return
+
+        dialect, driver_sep, driver = scheme.partition("+")
+        if not driver_sep or driver not in {"psycopg", "psycopg2"}:
+            return
+
+        updated_string = f"{dialect}+asyncpg://{remainder}"
+        if updated_string == self.DATABASE_STRING:
+            return
+
+        LOG.warning(
+            "Detected Windows environment: switching DATABASE_STRING driver from psycopg to asyncpg "
+            "for compatibility with the Proactor event loop policy."
+        )
+        object.__setattr__(self, "DATABASE_STRING", updated_string)
 
     def is_cloud_environment(self) -> bool:
         """

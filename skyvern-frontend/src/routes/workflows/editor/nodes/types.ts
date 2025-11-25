@@ -7,6 +7,8 @@ export type NodeBaseData = {
   continueOnFailure: boolean;
   editable: boolean;
   model: WorkflowModel | null;
+  showCode?: boolean;
+  comparisonColor?: string;
 };
 
 export const errorMappingExampleValue = {
@@ -33,7 +35,7 @@ export const dataSchemaExampleForFileExtraction = {
 export const workflowBlockTitle: {
   [blockType in WorkflowBlockType]: string;
 } = {
-  action: "Action",
+  action: "Browser Action",
   code: "Code",
   download_to_s3: "Download",
   extraction: "Extraction",
@@ -41,16 +43,17 @@ export const workflowBlockTitle: {
   file_url_parser: "File Parser",
   for_loop: "Loop",
   login: "Login",
-  navigation: "Navigation",
+  navigation: "Browser Task",
   send_email: "Send Email",
-  task: "Task",
+  task: "Browser Task",
   text_prompt: "Text Prompt",
   upload_to_s3: "Upload To S3",
-  file_upload: "Upload Files",
+  file_upload: "Cloud Storage",
   validation: "Validation",
+  human_interaction: "Human Interaction",
   wait: "Wait",
   pdf_parser: "PDF Parser",
-  task_v2: "Task v2",
+  task_v2: "Browser Task v2",
   goto_url: "Go to URL",
   http_request: "HTTP Request",
 };

@@ -29,6 +29,8 @@ def add_kv_pairs_to_msg(logger: logging.Logger, method_name: str, event_dict: Ev
             event_dict["organization_id"] = context.organization_id
         if context.organization_name:
             event_dict["organization_name"] = context.organization_name
+        if context.step_id:
+            event_dict["step_id"] = context.step_id
         if context.task_id:
             event_dict["task_id"] = context.task_id
         if context.run_id:
@@ -43,6 +45,10 @@ def add_kv_pairs_to_msg(logger: logging.Logger, method_name: str, event_dict: Ev
             event_dict["task_v2_id"] = context.task_v2_id
         if context.browser_session_id:
             event_dict["browser_session_id"] = context.browser_session_id
+        if context.browser_container_ip:
+            event_dict["browser_container_ip"] = context.browser_container_ip
+        if context.browser_container_task_arn:
+            event_dict["browser_container_task_arn"] = context.browser_container_task_arn
 
     # Add env to the log
     event_dict["env"] = settings.ENV
@@ -99,6 +105,9 @@ class CustomConsoleRenderer(structlog.dev.ConsoleRenderer):
     Show the bracketed filename:lineno section after the log level for console logs, and
     colorize it.
     """
+
+    def __init__(self) -> None:
+        super().__init__(sort_keys=False)
 
     def __call__(self, logger: logging.Logger, name: str, event_dict: EventDict) -> str:
         file_section = event_dict.pop("file", "")

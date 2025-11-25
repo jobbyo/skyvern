@@ -14,7 +14,7 @@
 </p>
 <p align="center">
   <a href="https://www.skyvern.com/"><img src="https://img.shields.io/badge/Website-blue?logo=googlechrome&logoColor=black"/></a>
-  <a href="https://docs.skyvern.com/"><img src="https://img.shields.io/badge/Docs-yellow?logo=gitbook&logoColor=black"/></a>
+  <a href="https://www.skyvern.com/docs/"><img src="https://img.shields.io/badge/Docs-yellow?logo=gitbook&logoColor=black"/></a>
   <a href="https://discord.gg/fG2XXEuQX3"><img src="https://img.shields.io/discord/1212486326352617534?logo=discord&label=discord"/></a>
   <!-- <a href="https://pepy.tech/project/skyvern" target="_blank"><img src="https://static.pepy.tech/badge/skyvern" alt="Total Downloads"/></a> -->
   <a href="https://github.com/skyvern-ai/skyvern"><img src="https://img.shields.io/github/stars/skyvern-ai/skyvern" /></a>
@@ -33,7 +33,46 @@ Traditional approaches to browser automations required writing custom scripts fo
 
 Instead of only relying on code-defined XPath interactions, Skyvern relies on Vision LLMs to learn and interact with the websites.
 
-Want to see examples of Skyvern in action? Jump to [#real-world-examples-of-skyvern](#real-world-examples-of-skyvern)
+# How it works
+Skyvern was inspired by the Task-Driven autonomous agent design popularized by [BabyAGI](https://github.com/yoheinakajima/babyagi) and [AutoGPT](https://github.com/Significant-Gravitas/AutoGPT) -- with one major bonus: we give Skyvern the ability to interact with websites using browser automation libraries like [Playwright](https://playwright.dev/).
+
+Skyvern uses a swarm of agents to comprehend a website, and plan and execute its actions:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="fern/images/skyvern_2_0_system_diagram.png" />
+  <img src="fern/images/skyvern_2_0_system_diagram.png" />
+</picture>
+
+This approach has a few advantages:
+
+1. Skyvern can operate on websites it's never seen before, as it's able to map visual elements to actions necessary to complete a workflow, without any customized code
+1. Skyvern is resistant to website layout changes, as there are no pre-determined XPaths or other selectors our system is looking for while trying to navigate
+1. Skyvern is able to take a single workflow and apply it to a large number of websites, as it's able to reason through the interactions necessary to complete the workflow
+1. Skyvern leverages LLMs to reason through interactions to ensure we can cover complex situations. Examples include:
+    1. If you wanted to get an auto insurance quote from Geico, the answer to a common question "Were you eligible to drive at 18?" could be inferred from the driver receiving their license at age 16
+    1. If you were doing competitor analysis, it's understanding that an Arnold Palmer 22 oz can at 7/11 is almost definitely the same product as a 23 oz can at Gopuff (even though the sizes are slightly different, which could be a rounding error!)
+
+A detailed technical report can be found [here](https://www.skyvern.com/blog/skyvern-2-0-state-of-the-art-web-navigation-with-85-8-on-webvoyager-eval/).
+
+# Demo
+<!-- Redo demo -->
+https://github.com/user-attachments/assets/5cab4668-e8e2-4982-8551-aab05ff73a7f
+
+# Performance & Evaluation
+
+Skyvern has SOTA performance on the [WebBench benchmark](webbench.ai) with a 64.4% accuracy. The technical report + evaluation can be found [here](https://www.skyvern.com/blog/web-bench-a-new-way-to-compare-ai-browser-agents/)
+
+<p align="center">
+  <img src="fern/images/performance/webbench_overall.png"/>
+</p>
+
+## Performance on WRITE tasks (eg filling out forms, logging in, downloading files, etc)
+
+Skyvern is the best performing agent on WRITE tasks (eg filling out forms, logging in, downloading files, etc), which is primarily used for RPA (Robotic Process Automation) adjacent tasks.
+
+<p align="center">
+  <img src="fern/images/performance/webbench_write.png"/>
+</p>
 
 # Quickstart
 
@@ -44,6 +83,14 @@ If you'd like to try it out, navigate to [app.skyvern.com](https://app.skyvern.c
 
 ## Install & Run
 
+Dependencies needed:
+- [Python 3.11.x](https://www.python.org/downloads/), works with 3.12, not ready yet for 3.13
+- [NodeJS & NPM](https://nodejs.org/en/download/)
+
+Additionally, for Windows:
+- [Rust](https://rustup.rs/)
+- VS Code with C++ dev tools and Windows SDK
+
 ### 1. Install Skyvern
 
 ```bash
@@ -51,6 +98,7 @@ pip install skyvern
 ```
 
 ### 2. Run Skyvern
+This is most helpful for first time run (db setup, db migrations etc).
 
 ```bash
 skyvern quickstart
@@ -60,7 +108,7 @@ skyvern quickstart
 
 #### UI (Recommended)
 
-Start the Skyvern service and UI
+Start the Skyvern service and UI (when DB is up and running)
 
 ```bash
 skyvern run all
@@ -92,47 +140,6 @@ skyvern = Skyvern(base_url="http://localhost:8000", api_key="LOCAL SKYVERN API K
 task = await skyvern.run_task(prompt="Find the top post on hackernews today")
 print(task)
 ```
-
-# How it works
-Skyvern was inspired by the Task-Driven autonomous agent design popularized by [BabyAGI](https://github.com/yoheinakajima/babyagi) and [AutoGPT](https://github.com/Significant-Gravitas/AutoGPT) -- with one major bonus: we give Skyvern the ability to interact with websites using browser automation libraries like [Playwright](https://playwright.dev/).
-
-Skyvern uses a swarm of agents to comprehend a website, and plan and execute its actions:
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="fern/images/skyvern_2_0_system_diagram.png" />
-  <img src="fern/images/skyvern_2_0_system_diagram.png" />
-</picture>
-
-This approach has a few advantages:
-
-1. Skyvern can operate on websites it's never seen before, as it's able to map visual elements to actions necessary to complete a workflow, without any customized code
-1. Skyvern is resistant to website layout changes, as there are no pre-determined XPaths or other selectors our system is looking for while trying to navigate
-1. Skyvern is able to take a single workflow and apply it to a large number of websites, as it's able to reason through the interactions necessary to complete the workflow
-1. Skyvern leverages LLMs to reason through interactions to ensure we can cover complex situations. Examples include:
-    1. If you wanted to get an auto insurance quote from Geico, the answer to a common question "Were you eligible to drive at 18?" could be inferred from the driver receiving their license at age 16
-    1. If you were doing competitor analysis, it's understanding that an Arnold Palmer 22 oz can at 7/11 is almost definitely the same product as a 23 oz can at Gopuff (even though the sizes are slightly different, which could be a rounding error!)
-
-A detailed technical report can be found [here](https://blog.skyvern.com/skyvern-2-0-state-of-the-art-web-navigation-with-85-8-on-webvoyager-eval/).
-
-# Demo
-<!-- Redo demo -->
-https://github.com/user-attachments/assets/5cab4668-e8e2-4982-8551-aab05ff73a7f
-
-# Performance & Evaluation
-
-Skyvern has SOTA performance on the [WebBench benchmark](webbench.ai) with a 64.4% accuracy. The technical report + evaluation can be found [here](https://blog.skyvern.com/web-bench-a-new-way-to-compare-ai-browser-agents/)
-
-<p align="center">
-  <img src="fern/images/performance/webbench_overall.png"/>
-</p>
-
-## Performance on WRITE tasks (eg filling out forms, logging in, downloading files, etc)
-
-Skyvern is the best performing agent on WRITE tasks (eg filling out forms, logging in, downloading files, etc), which is primarily used for RPA (Robotic Process Automation) adjacent tasks.
-
-<p align="center">
-  <img src="fern/images/performance/webbench_write.png"/>
-</p>
 
 ## Advanced Usage
 
@@ -271,20 +278,21 @@ For example, if you wanted to download all invoices newer than January 1st, you 
 Another example is if you wanted to automate purchasing products from an e-commerce store, you could create a workflow that first navigated to the desired product, then added it to a cart. Second, it would navigate to the cart and validate the cart state. Finally, it would go through the checkout process to purchase the items.
 
 Supported workflow features include:
-1. Navigation
-1. Action
+1. Browser Task
+1. Browser Action
 1. Data Extraction
-1. Loops
+1. Validation
+1. For Loops
 1. File parsing
-1. Uploading files to block storage
 1. Sending emails
 1. Text Prompts
-1. Tasks (general)
+1. HTTP Request Block
+1. Custom Code Block
+1. Uploading files to block storage
 1. (Coming soon) Conditionals
-1. (Coming soon) Custom Code Block
 
 <p align="center">
-  <img src="fern/images/invoice_downloading_workflow_example.png"/>
+  <img src="fern/images/block_example_v2.png"/>
 </p>
 
 ## Livestreaming
@@ -317,7 +325,7 @@ Examples include:
 1. Email based 2FA
 1. SMS based 2FA
 
-🔐 Learn more about 2FA support [here](https://docs.skyvern.com/credentials/totp).
+🔐 Learn more about 2FA support [here](https://www.skyvern.com/docs/credentials/totp).
 
 ### Password Manager Integrations
 Skyvern currently supports the following password manager integrations:
@@ -334,11 +342,11 @@ See the MCP documentation [here](https://github.com/Skyvern-AI/skyvern/blob/main
 ## Zapier / Make.com / N8N Integration
 Skyvern supports Zapier, Make.com, and N8N to allow you to connect your Skyvern workflows to other apps.
 
-* [Zapier](https://docs.skyvern.com/integrations/zapier)
-* [Make.com](https://docs.skyvern.com/integrations/make.com)
-* [N8N](https://docs.skyvern.com/integrations/n8n)
+* [Zapier](https://www.skyvern.com/docs/integrations/zapier)
+* [Make.com](https://www.skyvern.com/docs/integrations/make.com)
+* [N8N](https://www.skyvern.com/docs/integrations/n8n)
 
-🔐 Learn more about 2FA support [here](https://docs.skyvern.com/credentials/totp).
+🔐 Learn more about 2FA support [here](https://www.skyvern.com/docs/credentials/totp).
 
 
 # Real-world examples of Skyvern
@@ -390,22 +398,21 @@ We love to see how Skyvern is being used in the wild. Here are some examples of 
 </p>
 
 # Contributor Setup
-For a complete local environment CLI Installation
-```bash
-pip install -e .
-```
-The following command sets up your development environment to use pre-commit (our commit hook handler)
-```
-skyvern quickstart contributors
-```
-
-
-1. Navigate to `http://localhost:8080` in your browser to start using the UI
+Make sure to have [uv](https://docs.astral.sh/uv/getting-started/installation/) installed.
+1. Run this to create your virtual environment (`.venv`)
+    ```bash
+    uv sync --group dev
+    ```
+2. Perform initial server configuration
+    ```bash
+    uv run skyvern quickstart
+    ```
+3. Navigate to `http://localhost:8080` in your browser to start using the UI
    *The Skyvern CLI supports Windows, WSL, macOS, and Linux environments.*
 
 # Documentation
 
-More extensive documentation can be found on our [📕 docs page](https://docs.skyvern.com). Please let us know if something is unclear or missing by opening an issue or reaching out to us [via email](mailto:founders@skyvern.com) or [discord](https://discord.gg/fG2XXEuQX3).
+More extensive documentation can be found on our [📕 docs page](https://www.skyvern.com/docs). Please let us know if something is unclear or missing by opening an issue or reaching out to us [via email](mailto:founders@skyvern.com) or [discord](https://discord.gg/fG2XXEuQX3).
 
 # Supported LLMs
 | Provider | Supported Models |

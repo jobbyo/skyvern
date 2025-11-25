@@ -14,9 +14,17 @@ export type WorkflowCreateYAMLRequest = {
   is_saved_task?: boolean;
   max_screenshot_scrolls?: number | null;
   extra_http_headers?: Record<string, string> | null;
+  status?: string | null;
+  run_with?: string | null;
+  cache_key?: string | null;
+  ai_fallback?: boolean;
+  run_sequentially?: boolean;
+  sequential_key?: string | null;
+  folder_id?: string | null;
 };
 
 export type WorkflowDefinitionYAML = {
+  version?: number | null;
   parameters: Array<ParameterYAML>;
   blocks: Array<BlockYAML>;
 };
@@ -28,6 +36,7 @@ export type ParameterYAML =
   | BitwardenSensitiveInformationParameterYAML
   | BitwardenCreditCardDataParameterYAML
   | OnePasswordCredentialParameterYAML
+  | AzureVaultCredentialParameterYAML
   | ContextParameterYAML
   | OutputParameterYAML
   | CredentialParameterYAML;
@@ -87,6 +96,14 @@ export type OnePasswordCredentialParameterYAML = ParameterYAMLBase & {
   item_id: string;
 };
 
+export type AzureVaultCredentialParameterYAML = ParameterYAMLBase & {
+  parameter_type: "azure_vault_credential";
+  vault_name: string;
+  username_key: string;
+  password_key: string;
+  totp_secret_key: string | null;
+};
+
 export type ContextParameterYAML = ParameterYAMLBase & {
   parameter_type: "context";
   source_parameter_key: string;
@@ -112,6 +129,7 @@ export type BlockYAML =
   | FileUrlParserBlockYAML
   | ForLoopBlockYAML
   | ValidationBlockYAML
+  | HumanInteractionBlockYAML
   | ActionBlockYAML
   | NavigationBlockYAML
   | ExtractionBlockYAML
@@ -127,6 +145,7 @@ export type BlockYAMLBase = {
   block_type: WorkflowBlockType;
   label: string;
   continue_on_failure?: boolean;
+  next_block_label?: string | null;
 };
 
 export type TaskBlockYAML = BlockYAMLBase & {
@@ -144,7 +163,7 @@ export type TaskBlockYAML = BlockYAMLBase & {
   download_suffix?: string | null;
   totp_verification_url?: string | null;
   totp_identifier?: string | null;
-  cache_actions: boolean;
+  disable_cache: boolean;
   complete_criterion: string | null;
   terminate_criterion: string | null;
   include_action_history_in_verification: boolean;
@@ -158,6 +177,7 @@ export type Taskv2BlockYAML = BlockYAMLBase & {
   totp_verification_url: string | null;
   totp_identifier: string | null;
   max_steps: number | null;
+  disable_cache: boolean;
 };
 
 export type ValidationBlockYAML = BlockYAMLBase & {
@@ -166,6 +186,20 @@ export type ValidationBlockYAML = BlockYAMLBase & {
   terminate_criterion: string | null;
   error_code_mapping: Record<string, string> | null;
   parameter_keys?: Array<string> | null;
+};
+
+export type HumanInteractionBlockYAML = BlockYAMLBase & {
+  block_type: "human_interaction";
+
+  instructions: string;
+  positive_descriptor: string;
+  negative_descriptor: string;
+  timeout_seconds: number;
+
+  sender: string;
+  recipients: Array<string>;
+  subject: string;
+  body: string;
 };
 
 export type ActionBlockYAML = BlockYAMLBase & {
@@ -180,7 +214,7 @@ export type ActionBlockYAML = BlockYAMLBase & {
   download_suffix?: string | null;
   totp_verification_url?: string | null;
   totp_identifier?: string | null;
-  cache_actions: boolean;
+  disable_cache: boolean;
   engine: RunEngine | null;
 };
 
@@ -197,7 +231,7 @@ export type NavigationBlockYAML = BlockYAMLBase & {
   download_suffix?: string | null;
   totp_verification_url?: string | null;
   totp_identifier?: string | null;
-  cache_actions: boolean;
+  disable_cache: boolean;
   complete_criterion: string | null;
   terminate_criterion: string | null;
   engine: RunEngine | null;
@@ -214,7 +248,7 @@ export type ExtractionBlockYAML = BlockYAMLBase & {
   max_retries?: number;
   max_steps_per_run?: number | null;
   parameter_keys?: Array<string> | null;
-  cache_actions: boolean;
+  disable_cache: boolean;
   engine: RunEngine | null;
 };
 
@@ -229,7 +263,7 @@ export type LoginBlockYAML = BlockYAMLBase & {
   parameter_keys?: Array<string> | null;
   totp_verification_url?: string | null;
   totp_identifier?: string | null;
-  cache_actions: boolean;
+  disable_cache: boolean;
   complete_criterion: string | null;
   terminate_criterion: string | null;
   engine: RunEngine | null;
@@ -252,8 +286,9 @@ export type FileDownloadBlockYAML = BlockYAMLBase & {
   download_suffix?: string | null;
   totp_verification_url?: string | null;
   totp_identifier?: string | null;
-  cache_actions: boolean;
+  disable_cache: boolean;
   engine: RunEngine | null;
+  download_timeout?: number | null;
 };
 
 export type CodeBlockYAML = BlockYAMLBase & {
@@ -288,6 +323,9 @@ export type FileUploadBlockYAML = BlockYAMLBase & {
   region_name: string;
   aws_access_key_id: string;
   aws_secret_access_key: string;
+  azure_storage_account_name?: string | null;
+  azure_storage_account_key?: string | null;
+  azure_blob_container_name?: string | null;
 };
 
 export type SendEmailBlockYAML = BlockYAMLBase & {
@@ -308,7 +346,8 @@ export type SendEmailBlockYAML = BlockYAMLBase & {
 export type FileUrlParserBlockYAML = BlockYAMLBase & {
   block_type: "file_url_parser";
   file_url: string;
-  file_type: "csv";
+  file_type: "csv" | "excel" | "pdf";
+  json_schema?: Record<string, unknown> | null;
 };
 
 export type ForLoopBlockYAML = BlockYAMLBase & {

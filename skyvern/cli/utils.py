@@ -1,9 +1,11 @@
 import asyncio
+import logging
 import sys
 
 import typer
 
 from skyvern.cli.console import console
+from skyvern.utils.env_paths import resolve_backend_env_path
 
 
 async def start_services(server_only: bool = False) -> None:
@@ -27,7 +29,7 @@ async def start_services(server_only: bool = False) -> None:
 
         console.print("\n🎉 [bold green]Skyvern is now running![/bold green]")
         console.print("🌐 [bold]Access the UI at:[/bold] [cyan]http://localhost:8080[/cyan]")
-        console.print("🔑 [bold]Your API key is in your .env file as SKYVERN_API_KEY[/bold]")
+        console.print(f"🔑 [bold]Your API key is in {resolve_backend_env_path()} as SKYVERN_API_KEY[/bold]")
 
         # Wait for processes to complete (they won't unless killed)
         if not server_only:
@@ -37,4 +39,5 @@ async def start_services(server_only: bool = False) -> None:
 
     except Exception as e:
         console.print(f"[bold red]Error starting services: {str(e)}[/bold red]")
+        logging.error("Startup failed", exc_info=True)
         raise typer.Exit(1)

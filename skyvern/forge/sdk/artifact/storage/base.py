@@ -82,6 +82,12 @@ class BaseStorage(ABC):
         pass
 
     @abstractmethod
+    def build_script_file_uri(
+        self, *, organization_id: str, script_id: str, script_version: int, file_path: str
+    ) -> str:
+        pass
+
+    @abstractmethod
     async def store_artifact(self, artifact: Artifact, data: bytes) -> None:
         pass
 
@@ -118,15 +124,47 @@ class BaseStorage(ABC):
         pass
 
     @abstractmethod
-    async def save_downloaded_files(
-        self, organization_id: str, task_id: str | None, workflow_run_id: str | None
-    ) -> None:
+    async def store_browser_profile(self, organization_id: str, profile_id: str, directory: str) -> None:
+        """Store a browser profile from a directory."""
+
+    @abstractmethod
+    async def retrieve_browser_profile(self, organization_id: str, profile_id: str) -> str | None:
+        """Retrieve a browser profile to a temporary directory."""
+
+    @abstractmethod
+    async def list_downloaded_files_in_browser_session(
+        self, organization_id: str, browser_session_id: str
+    ) -> list[str]:
         pass
 
     @abstractmethod
-    async def get_downloaded_files(
-        self, organization_id: str, task_id: str | None, workflow_run_id: str | None
+    async def list_downloading_files_in_browser_session(
+        self, organization_id: str, browser_session_id: str
+    ) -> list[str]:
+        pass
+
+    @abstractmethod
+    async def get_shared_downloaded_files_in_browser_session(
+        self, organization_id: str, browser_session_id: str
     ) -> list[FileInfo]:
+        pass
+
+    @abstractmethod
+    async def list_recordings_in_browser_session(self, organization_id: str, browser_session_id: str) -> list[str]:
+        pass
+
+    @abstractmethod
+    async def get_shared_recordings_in_browser_session(
+        self, organization_id: str, browser_session_id: str
+    ) -> list[FileInfo]:
+        pass
+
+    @abstractmethod
+    async def save_downloaded_files(self, organization_id: str, run_id: str | None) -> None:
+        pass
+
+    @abstractmethod
+    async def get_downloaded_files(self, organization_id: str, run_id: str | None) -> list[FileInfo]:
         pass
 
     @abstractmethod

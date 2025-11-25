@@ -15,6 +15,9 @@ from skyvern.forge.sdk.db.models import (
     OrganizationAuthTokenModel,
     OrganizationModel,
     OutputParameterModel,
+    ScriptBlockModel,
+    ScriptFileModel,
+    ScriptModel,
     StepModel,
     TaskModel,
     WorkflowModel,
@@ -24,11 +27,17 @@ from skyvern.forge.sdk.db.models import (
     WorkflowRunOutputParameterModel,
     WorkflowRunParameterModel,
 )
+from skyvern.forge.sdk.encrypt import encryptor
+from skyvern.forge.sdk.encrypt.base import EncryptMethod
 from skyvern.forge.sdk.models import Step, StepStatus
-from skyvern.forge.sdk.schemas.organizations import Organization, OrganizationAuthToken
+from skyvern.forge.sdk.schemas.organizations import (
+    AzureClientSecretCredential,
+    AzureOrganizationAuthToken,
+    Organization,
+    OrganizationAuthToken,
+)
 from skyvern.forge.sdk.schemas.tasks import Task, TaskStatus
 from skyvern.forge.sdk.schemas.workflow_runs import WorkflowRunBlock
-from skyvern.forge.sdk.workflow.models.block import BlockStatus, BlockType
 from skyvern.forge.sdk.workflow.models.parameter import (
     AWSSecretParameter,
     BitwardenLoginCredentialParameter,
@@ -46,7 +55,9 @@ from skyvern.forge.sdk.workflow.models.workflow import (
     WorkflowRunStatus,
     WorkflowStatus,
 )
-from skyvern.schemas.runs import ProxyLocation
+from skyvern.schemas.runs import ProxyLocation, ScriptRunResponse
+from skyvern.schemas.scripts import Script, ScriptBlock, ScriptFile
+from skyvern.schemas.workflows import BlockStatus, BlockType
 from skyvern.webeye.actions.actions import (
     Action,
     ActionType,
@@ -56,6 +67,7 @@ from skyvern.webeye.actions.actions import (
     DownloadFileAction,
     DragAction,
     ExtractAction,
+    GotoUrlAction,
     InputTextAction,
     KeypressAction,
     LeftMouseAction,
@@ -94,6 +106,7 @@ ACTION_TYPE_TO_CLASS = {
     ActionType.DRAG: DragAction,
     ActionType.VERIFICATION_CODE: VerificationCodeAction,
     ActionType.LEFT_MOUSE: LeftMouseAction,
+    ActionType.GOTO_URL: GotoUrlAction,
 }
 
 
@@ -120,6 +133,7 @@ def convert_to_task(task_obj: TaskModel, debug_enabled: bool = False, workflow_p
         terminate_criterion=task_obj.terminate_criterion,
         include_action_history_in_verification=task_obj.include_action_history_in_verification,
         webhook_callback_url=task_obj.webhook_callback_url,
+        webhook_failure_reason=task_obj.webhook_failure_reason,
         totp_verification_url=task_obj.totp_verification_url,
         totp_identifier=task_obj.totp_identifier,
         navigation_goal=task_obj.navigation_goal,
@@ -145,6 +159,8 @@ def convert_to_task(task_obj: TaskModel, debug_enabled: bool = False, workflow_p
         finished_at=task_obj.finished_at,
         max_screenshot_scrolls=task_obj.max_screenshot_scrolling_times,
         browser_session_id=task_obj.browser_session_id,
+        browser_address=task_obj.browser_address,
+        download_timeout=task_obj.download_timeout,
     )
     return task
 
@@ -186,18 +202,34 @@ def convert_to_organization(org_model: OrganizationModel) -> Organization:
     )
 
 
-def convert_to_organization_auth_token(
-    org_auth_token: OrganizationAuthTokenModel,
-) -> OrganizationAuthToken:
-    return OrganizationAuthToken(
-        id=org_auth_token.id,
-        organization_id=org_auth_token.organization_id,
-        token_type=OrganizationAuthTokenType(org_auth_token.token_type),
-        token=org_auth_token.token,
-        valid=org_auth_token.valid,
-        created_at=org_auth_token.created_at,
-        modified_at=org_auth_token.modified_at,
-    )
+async def convert_to_organization_auth_token(
+    org_auth_token: OrganizationAuthTokenModel, token_type: str
+) -> OrganizationAuthToken | AzureOrganizationAuthToken:
+    token = org_auth_token.token
+    if org_auth_token.encrypted_token and org_auth_token.encrypted_method:
+        token = await encryptor.decrypt(org_auth_token.encrypted_token, EncryptMethod(org_auth_token.encrypted_method))
+
+    if token_type == OrganizationAuthTokenType.azure_client_secret_credential:
+        credential = AzureClientSecretCredential.model_validate_json(token)
+        return AzureOrganizationAuthToken(
+            id=org_auth_token.id,
+            organization_id=org_auth_token.organization_id,
+            token_type=OrganizationAuthTokenType(org_auth_token.token_type),
+            credential=credential,
+            valid=org_auth_token.valid,
+            created_at=org_auth_token.created_at,
+            modified_at=org_auth_token.modified_at,
+        )
+    else:
+        return OrganizationAuthToken(
+            id=org_auth_token.id,
+            organization_id=org_auth_token.organization_id,
+            token_type=OrganizationAuthTokenType(org_auth_token.token_type),
+            token=token,
+            valid=org_auth_token.valid,
+            created_at=org_auth_token.created_at,
+            modified_at=org_auth_token.modified_at,
+        )
 
 
 def convert_to_artifact(artifact_model: ArtifactModel, debug_enabled: bool = False) -> Artifact:
@@ -251,6 +283,13 @@ def convert_to_workflow(workflow_model: WorkflowModel, debug_enabled: bool = Fal
         deleted_at=workflow_model.deleted_at,
         status=WorkflowStatus(workflow_model.status),
         extra_http_headers=workflow_model.extra_http_headers,
+        run_with=workflow_model.run_with,
+        ai_fallback=workflow_model.ai_fallback,
+        cache_key=workflow_model.cache_key,
+        run_sequentially=workflow_model.run_sequentially,
+        sequential_key=workflow_model.sequential_key,
+        folder_id=workflow_model.folder_id,
+        import_error=workflow_model.import_error,
     )
 
 
@@ -270,12 +309,14 @@ def convert_to_workflow_run(
         workflow_id=workflow_run_model.workflow_id,
         organization_id=workflow_run_model.organization_id,
         browser_session_id=workflow_run_model.browser_session_id,
+        browser_profile_id=workflow_run_model.browser_profile_id,
         status=WorkflowRunStatus[workflow_run_model.status],
         failure_reason=workflow_run_model.failure_reason,
         proxy_location=(
             ProxyLocation(workflow_run_model.proxy_location) if workflow_run_model.proxy_location else None
         ),
         webhook_callback_url=workflow_run_model.webhook_callback_url,
+        webhook_failure_reason=workflow_run_model.webhook_failure_reason,
         totp_verification_url=workflow_run_model.totp_verification_url,
         totp_identifier=workflow_run_model.totp_identifier,
         queued_at=workflow_run_model.queued_at,
@@ -286,6 +327,15 @@ def convert_to_workflow_run(
         workflow_title=workflow_title,
         max_screenshot_scrolls=workflow_run_model.max_screenshot_scrolling_times,
         extra_http_headers=workflow_run_model.extra_http_headers,
+        browser_address=workflow_run_model.browser_address,
+        job_id=workflow_run_model.job_id,
+        depends_on_workflow_run_id=workflow_run_model.depends_on_workflow_run_id,
+        sequential_key=workflow_run_model.sequential_key,
+        script_run=ScriptRunResponse.model_validate(workflow_run_model.script_run)
+        if workflow_run_model.script_run
+        else None,
+        run_with=workflow_run_model.run_with,
+        code_gen=workflow_run_model.code_gen,
     )
 
 
@@ -476,8 +526,14 @@ def convert_to_workflow_run_block(
         body=workflow_run_block_model.body,
         created_at=workflow_run_block_model.created_at,
         modified_at=workflow_run_block_model.modified_at,
+        instructions=workflow_run_block_model.instructions,
+        positive_descriptor=workflow_run_block_model.positive_descriptor,
+        negative_descriptor=workflow_run_block_model.negative_descriptor,
     )
     if task:
+        if task.finished_at and task.started_at:
+            duration = task.finished_at - task.started_at
+            block.duration = duration.total_seconds()
         block.url = task.url
         block.navigation_goal = task.navigation_goal
         block.navigation_payload = task.navigation_payload
@@ -490,12 +546,64 @@ def convert_to_workflow_run_block(
     return block
 
 
-def hydrate_action(action_model: ActionModel) -> Action:
+def convert_to_script(script_model: ScriptModel) -> Script:
+    return Script(
+        script_revision_id=script_model.script_revision_id,
+        script_id=script_model.script_id,
+        organization_id=script_model.organization_id,
+        run_id=script_model.run_id,
+        version=script_model.version,
+        created_at=script_model.created_at,
+        modified_at=script_model.modified_at,
+        deleted_at=script_model.deleted_at,
+    )
+
+
+def convert_to_script_file(script_file_model: ScriptFileModel) -> ScriptFile:
+    return ScriptFile(
+        file_id=script_file_model.file_id,
+        script_revision_id=script_file_model.script_revision_id,
+        script_id=script_file_model.script_id,
+        organization_id=script_file_model.organization_id,
+        file_path=script_file_model.file_path,
+        file_name=script_file_model.file_name,
+        file_type=script_file_model.file_type,
+        content_hash=script_file_model.content_hash,
+        file_size=script_file_model.file_size,
+        mime_type=script_file_model.mime_type,
+        encoding=script_file_model.encoding,
+        artifact_id=script_file_model.artifact_id,
+        created_at=script_file_model.created_at,
+        modified_at=script_file_model.modified_at,
+    )
+
+
+def convert_to_script_block(script_block_model: ScriptBlockModel) -> ScriptBlock:
+    return ScriptBlock(
+        script_block_id=script_block_model.script_block_id,
+        organization_id=script_block_model.organization_id,
+        script_id=script_block_model.script_id,
+        script_revision_id=script_block_model.script_revision_id,
+        script_block_label=script_block_model.script_block_label,
+        script_file_id=script_block_model.script_file_id,
+        run_signature=script_block_model.run_signature,
+        workflow_run_id=script_block_model.workflow_run_id,
+        workflow_run_block_id=script_block_model.workflow_run_block_id,
+        created_at=script_block_model.created_at,
+        modified_at=script_block_model.modified_at,
+        deleted_at=script_block_model.deleted_at,
+    )
+
+
+def hydrate_action(action_model: ActionModel, empty_element_id: bool = False) -> Action:
     """
     Convert ActionModel to the appropriate Action type based on action_type.
     The action_json contains all the metadata of different types of actions.
     """
     # Create base action data from the model
+    element_id = action_model.element_id
+    if empty_element_id:
+        element_id = element_id or ""
     action_data = {
         "action_type": action_model.action_type,
         "status": action_model.status,
@@ -511,7 +619,7 @@ def hydrate_action(action_model: ActionModel) -> Action:
         "reasoning": action_model.reasoning,
         "intention": action_model.intention,
         "response": action_model.response,
-        "element_id": action_model.element_id,
+        "element_id": element_id,
         "skyvern_element_hash": action_model.skyvern_element_hash,
         "skyvern_element_data": action_model.skyvern_element_data,
         "created_at": action_model.created_at,

@@ -4,6 +4,7 @@ from urllib.parse import urlparse
 
 import aioboto3
 import structlog
+from types_boto3_batch.client import BatchClient
 from types_boto3_ec2.client import EC2Client
 from types_boto3_ecs.client import ECSClient
 from types_boto3_s3.client import S3Client
@@ -31,6 +32,7 @@ class AWSClientType(StrEnum):
     SECRETS_MANAGER = "secretsmanager"
     ECS = "ecs"
     EC2 = "ec2"
+    BATCH = "batch"
 
 
 class AsyncAWSClient:
@@ -40,12 +42,14 @@ class AsyncAWSClient:
         aws_secret_access_key: str | None = None,
         region_name: str | None = None,
         endpoint_url: str | None = None,
+        profile_name: str | None = None,
     ) -> None:
         self.region_name = region_name or settings.AWS_REGION
         self._endpoint_url = endpoint_url
         self.session = aioboto3.Session(
             aws_access_key_id=aws_access_key_id,
             aws_secret_access_key=aws_secret_access_key,
+            profile_name=profile_name,
         )
 
     def _ecs_client(self) -> ECSClient:
@@ -61,6 +65,9 @@ class AsyncAWSClient:
 
     def _ec2_client(self) -> EC2Client:
         return self.session.client(AWSClientType.EC2, region_name=self.region_name, endpoint_url=self._endpoint_url)
+
+    def _batch_client(self) -> BatchClient:
+        return self.session.client(AWSClientType.BATCH, region_name=self.region_name, endpoint_url=self._endpoint_url)
 
     def _create_tag_string(self, tags: dict[str, str]) -> str:
         return "&".join([f"{k}={v}" for k, v in tags.items()])
@@ -203,6 +210,16 @@ class AsyncAWSClient:
                 LOG.exception("S3 download failed", uri=uri)
             return None
 
+    async def delete_file(self, uri: str, log_exception: bool = True) -> None:
+        # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/s3/client/delete_object.html
+        try:
+            async with self._s3_client() as client:
+                parsed_uri = S3Uri(uri)
+                await client.delete_object(Bucket=parsed_uri.bucket, Key=parsed_uri.key)
+        except Exception:
+            if log_exception:
+                LOG.exception("S3 delete failed", uri=uri)
+
     async def get_object_info(self, uri: str) -> dict:
         async with self._s3_client() as client:
             parsed_uri = S3Uri(uri)
@@ -266,6 +283,65 @@ class AsyncAWSClient:
                         object_keys.append(obj["Key"])
             return object_keys
 
+    async def delete_files(self, bucket: str, keys: list[str]) -> None:
+        # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/s3/client/delete_objects.html
+        """
+        Delete multiple objects from S3 bucket.
+
+        Args:
+            bucket: The S3 bucket name
+            keys: List of object keys to delete
+        """
+        if not keys:
+            return
+
+        try:
+            async with self._s3_client() as client:
+                # Format the objects for the delete_objects call
+                objects = [{"Key": key} for key in keys]
+
+                response = await client.delete_objects(
+                    Bucket=bucket,
+                    Delete={
+                        "Objects": objects,
+                        "Quiet": False,  # Set to True to suppress response details
+                    },
+                )
+
+                # Log any errors that occurred during deletion
+                if "Errors" in response:
+                    for error in response["Errors"]:
+                        LOG.error(
+                            "Failed to delete object from S3",
+                            bucket=bucket,
+                            key=error.get("Key"),
+                            code=error.get("Code"),
+                            message=error.get("Message"),
+                        )
+        except Exception as e:
+            LOG.exception("Failed to delete files from S3", bucket=bucket, keys_count=len(keys))
+            raise e
+
+    async def restore_object(self, bucket: str, key: str, days: int = 1, tier: str = "Standard") -> None:
+        # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/s3/client/restore_object.html
+        """
+        Restore an archived S3 object from GLACIER storage class.
+
+        Args:
+            bucket: The S3 bucket name
+            key: The S3 object key
+            days: Number of days to keep the restored object available (default: 1)
+            tier: Restoration tier - "Standard" (3-5 hours) or "Expedited" (1-5 minutes)
+        """
+        try:
+            async with self._s3_client() as client:
+                await client.restore_object(
+                    Bucket=bucket, Key=key, RestoreRequest={"Days": days, "GlacierJobParameters": {"Tier": tier}}
+                )
+        except Exception as e:
+            LOG.exception("Failed to restore S3 object", bucket=bucket, key=key, tier=tier)
+            raise e
+
     async def run_task(
         self,
         cluster: str,
@@ -322,6 +398,61 @@ class AsyncAWSClient:
         # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/ec2/client/describe_network_interfaces.html
         async with self._ec2_client() as client:
             return await client.describe_network_interfaces(NetworkInterfaceIds=network_interface_ids)
+
+    ###### Batch ######
+    async def describe_job(self, job_id: str) -> dict:
+        # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/batch/client/describe_jobs.html
+        async with self._batch_client() as client:
+            response = await client.describe_jobs(jobs=[job_id])
+            return response["jobs"][0] if response["jobs"] else {}
+
+    async def list_jobs(self, job_queue: str, job_status: str) -> list[dict]:
+        # NOTE: AWS batch only records the latest 7 days jobs by default
+        # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/batch/client/list_jobs.html
+        async with self._batch_client() as client:
+            total_jobs = []
+            async for page in client.get_paginator("list_jobs").paginate(jobQueue=job_queue, jobStatus=job_status):
+                for job in page["jobSummaryList"]:
+                    total_jobs.append(job)
+
+            return total_jobs
+
+    async def submit_job(
+        self,
+        job_name: str,
+        job_queue: str,
+        job_definition: str,
+        params: dict,
+        job_priority: int | None = None,
+        share_identifier: str | None = None,
+        container_overrides: dict | None = None,
+        depends_on_ids: list[str] | None = None,
+    ) -> str | None:
+        container_overrides = container_overrides or {}
+        depends_on = [{"jobId": job_id} for job_id in depends_on_ids or []]
+        async with self._batch_client() as client:
+            if job_priority is None or share_identifier is None:
+                response = await client.submit_job(
+                    jobName=job_name,
+                    jobQueue=job_queue,
+                    jobDefinition=job_definition,
+                    parameters=params,
+                    containerOverrides=container_overrides,
+                    dependsOn=depends_on,
+                )
+                return response.get("jobId")
+            else:
+                response = await client.submit_job(
+                    jobName=job_name,
+                    jobQueue=job_queue,
+                    jobDefinition=job_definition,
+                    parameters=params,
+                    schedulingPriorityOverride=job_priority,
+                    shareIdentifier=share_identifier,
+                    containerOverrides=container_overrides,
+                    dependsOn=depends_on,
+                )
+                return response.get("jobId")
 
 
 class S3Uri:

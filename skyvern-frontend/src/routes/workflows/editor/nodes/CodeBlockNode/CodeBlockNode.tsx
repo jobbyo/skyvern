@@ -1,26 +1,29 @@
+import { useParams } from "react-router-dom";
+import { Handle, NodeProps, Position } from "@xyflow/react";
+
 import { Label } from "@/components/ui/label";
 import { WorkflowBlockInputSet } from "@/components/WorkflowBlockInputSet";
 import { CodeEditor } from "@/routes/workflows/components/CodeEditor";
-import { Handle, NodeProps, Position, useReactFlow } from "@xyflow/react";
-import { useState } from "react";
-import type { CodeBlockNode } from "./types";
-import { useDebugStore } from "@/store/useDebugStore";
+import { statusIsRunningOrQueued } from "@/routes/tasks/types";
+import { useWorkflowRunQuery } from "@/routes/workflows/hooks/useWorkflowRunQuery";
+import { useUpdate } from "@/routes/workflows/editor/useUpdate";
+import { deepEqualStringArrays } from "@/util/equality";
 import { cn } from "@/util/utils";
+
+import type { CodeBlockNode } from "./types";
 import { NodeHeader } from "../components/NodeHeader";
-import { useParams } from "react-router-dom";
 
 function CodeBlockNode({ id, data }: NodeProps<CodeBlockNode>) {
-  const { updateNodeData } = useReactFlow();
-  const { debuggable, editable, label } = data;
-  const debugStore = useDebugStore();
-  const elideFromDebugging = debugStore.isDebugMode && !debuggable;
+  const { editable, label } = data;
   const { blockLabel: urlBlockLabel } = useParams();
-  const thisBlockIsPlaying =
+  const { data: workflowRun } = useWorkflowRunQuery();
+  const workflowRunIsRunningOrQueued =
+    workflowRun && statusIsRunningOrQueued(workflowRun);
+  const thisBlockIsTargetted =
     urlBlockLabel !== undefined && urlBlockLabel === label;
-  const [inputs, setInputs] = useState({
-    code: data.code,
-    parameterKeys: data.parameterKeys,
-  });
+  const thisBlockIsPlaying =
+    workflowRunIsRunningOrQueued && thisBlockIsTargetted;
+  const update = useUpdate<CodeBlockNode["data"]>({ id, editable });
 
   return (
     <div>
@@ -40,14 +43,15 @@ function CodeBlockNode({ id, data }: NodeProps<CodeBlockNode>) {
         className={cn(
           "transform-origin-center w-[30rem] space-y-4 rounded-lg bg-slate-elevation3 px-6 py-4 transition-all",
           {
-            "pointer-events-none bg-slate-950 outline outline-2 outline-slate-300":
-              thisBlockIsPlaying,
+            "pointer-events-none": thisBlockIsPlaying,
+            "bg-slate-950 outline outline-2 outline-slate-300":
+              thisBlockIsTargetted,
           },
+          data.comparisonColor,
         )}
       >
         <NodeHeader
           blockLabel={label}
-          disabled={elideFromDebugging}
           editable={editable}
           nodeId={id}
           totpIdentifier={null}
@@ -59,26 +63,23 @@ function CodeBlockNode({ id, data }: NodeProps<CodeBlockNode>) {
           <WorkflowBlockInputSet
             nodeId={id}
             onChange={(parameterKeys) => {
-              setInputs({
-                ...inputs,
-                parameterKeys: Array.from(parameterKeys),
-              });
-              updateNodeData(id, { parameterKeys: Array.from(parameterKeys) });
+              const newParameterKeys = Array.from(parameterKeys);
+              if (
+                !deepEqualStringArrays(data.parameterKeys, newParameterKeys)
+              ) {
+                update({ parameterKeys: newParameterKeys });
+              }
             }}
-            values={new Set(inputs.parameterKeys ?? [])}
+            values={new Set(data.parameterKeys ?? [])}
           />
         </div>
         <div className="space-y-2">
           <Label className="text-xs text-slate-300">Code Input</Label>
           <CodeEditor
             language="python"
-            value={inputs.code}
+            value={data.code}
             onChange={(value) => {
-              if (!data.editable) {
-                return;
-              }
-              setInputs({ ...inputs, code: value });
-              updateNodeData(id, { code: value });
+              update({ code: value });
             }}
             className="nopan"
             fontSize={8}

@@ -7,20 +7,27 @@ from openai.types.responses.response import Response as OpenAIResponse
 from pydantic import ValidationError
 
 from skyvern.constants import SCROLL_AMOUNT_MULTIPLIER
-from skyvern.exceptions import NoTOTPVerificationCodeFound, UnsupportedActionType
+from skyvern.exceptions import FailedToGetTOTPVerificationCode, NoTOTPVerificationCodeFound, UnsupportedActionType
 from skyvern.forge import app
 from skyvern.forge.prompts import prompt_engine
+from skyvern.forge.sdk.core import skyvern_context
 from skyvern.forge.sdk.models import Step
 from skyvern.forge.sdk.schemas.tasks import Task
+from skyvern.forge.sdk.schemas.totp_codes import OTPType
+from skyvern.services.otp_service import poll_otp_value
 from skyvern.utils.image_resizer import Resolution, scale_coordinates
 from skyvern.webeye.actions.action_types import ActionType
 from skyvern.webeye.actions.actions import (
     Action,
     CheckboxAction,
     ClickAction,
+    ClickContext,
+    ClosePageAction,
     CompleteAction,
     DownloadFileAction,
     DragAction,
+    GotoUrlAction,
+    InputOrSelectContext,
     InputTextAction,
     KeypressAction,
     LeftMouseAction,
@@ -35,13 +42,17 @@ from skyvern.webeye.actions.actions import (
     VerificationCodeAction,
     WaitAction,
 )
-from skyvern.webeye.actions.handler import poll_verification_code
 from skyvern.webeye.scraper.scraper import ScrapedPage
 
 LOG = structlog.get_logger()
 
 
-def parse_action(action: Dict[str, Any], scraped_page: ScrapedPage, data_extraction_goal: str | None = None) -> Action:
+def parse_action(
+    action: Dict[str, Any],
+    scraped_page: ScrapedPage,
+    data_extraction_goal: str | None = None,
+    totp_code_required: bool = False,
+) -> Action:
     if "id" in action:
         element_id = action["id"]
     elif "element_id" in action:
@@ -68,6 +79,7 @@ def parse_action(action: Dict[str, Any], scraped_page: ScrapedPage, data_extract
         "intention": intention,
         "response": response,
     }
+    input_or_select_context: InputOrSelectContext | None = None
 
     if "action_type" not in action or action["action_type"] is None:
         return NullAction(**base_action_dict)
@@ -86,10 +98,27 @@ def parse_action(action: Dict[str, Any], scraped_page: ScrapedPage, data_extract
 
     if action_type == ActionType.CLICK:
         file_url = action["file_url"] if "file_url" in action else None
-        return ClickAction(**base_action_dict, file_url=file_url, download=action.get("download", False))
+        click_context = action.get("click_context", None)
+        if click_context:
+            click_context = ClickContext.model_validate(click_context)
+        return ClickAction(
+            **base_action_dict,
+            file_url=file_url,
+            download=action.get("download", False),
+            click_context=click_context,
+        )
 
     if action_type == ActionType.INPUT_TEXT:
-        return InputTextAction(**base_action_dict, text=action["text"])
+        context_dict = action.get("context", {})
+        if context_dict and len(context_dict) > 0:
+            context_dict["intention"] = intention
+            input_or_select_context = InputOrSelectContext.model_validate(context_dict)
+        return InputTextAction(
+            **base_action_dict,
+            text=action["text"],
+            input_or_select_context=input_or_select_context,
+            totp_code_required=totp_code_required,
+        )
 
     if action_type == ActionType.UPLOAD_FILE:
         # TODO: see if the element is a file input element. if it's not, convert this action into a click action
@@ -106,6 +135,12 @@ def parse_action(action: Dict[str, Any], scraped_page: ScrapedPage, data_extract
         option = action["option"]
         if option is None:
             raise ValueError("SelectOptionAction requires an 'option' field")
+
+        context_dict = action.get("context", {})
+        if context_dict and len(context_dict) > 0:
+            context_dict["intention"] = intention
+            input_or_select_context = InputOrSelectContext.model_validate(context_dict)
+
         label = option.get("label")
         value = option.get("value")
         index = option.get("index")
@@ -118,6 +153,8 @@ def parse_action(action: Dict[str, Any], scraped_page: ScrapedPage, data_extract
                 value=value,
                 index=index,
             ),
+            input_or_select_context=input_or_select_context,
+            download=action.get("download", False),
         )
 
     if action_type == ActionType.CHECKBOX:
@@ -142,6 +179,9 @@ def parse_action(action: Dict[str, Any], scraped_page: ScrapedPage, data_extract
     if action_type == ActionType.SOLVE_CAPTCHA:
         return SolveCaptchaAction(**base_action_dict)
 
+    if action_type == ActionType.CLOSE_PAGE:
+        return ClosePageAction(**base_action_dict)
+
     raise UnsupportedActionType(action_type=action_type)
 
 
@@ -149,10 +189,16 @@ def parse_actions(
     task: Task, step_id: str, step_order: int, scraped_page: ScrapedPage, json_response: list[Dict[str, Any]]
 ) -> list[Action]:
     actions: list[Action] = []
+    context = skyvern_context.ensure_context()
+    totp_code = context.totp_codes.get(task.task_id)
+    totp_code_required = bool(totp_code)
     for idx, action in enumerate(json_response):
         try:
             action_instance = parse_action(
-                action=action, scraped_page=scraped_page, data_extraction_goal=task.data_extraction_goal
+                action=action,
+                scraped_page=scraped_page,
+                data_extraction_goal=task.data_extraction_goal,
+                totp_code_required=totp_code_required,
             )
             action_instance.organization_id = task.organization_id
             action_instance.workflow_run_id = task.workflow_run_id
@@ -728,10 +774,14 @@ async def generate_cua_fallback_actions(
     action_response = await app.LLM_API_HANDLER(
         prompt=fallback_action_prompt,
         prompt_name="cua-fallback-action",
+        step=step,
     )
     LOG.info("Fallback action response", action_response=action_response)
     skyvern_action_type = action_response.get("action")
     useful_information = action_response.get("useful_information")
+
+    # use 'other' action as fallback in the 'cua-fallback-action' prompt
+    # it can avoid LLM returning unreasonable actions, and fallback to use 'wait' action in agent instead
     action = WaitAction(
         seconds=5,
         reasoning=reasoning,
@@ -767,6 +817,54 @@ async def generate_cua_fallback_actions(
             reasoning=reasoning,
             intention=reasoning,
         )
+    elif skyvern_action_type == "get_magic_link":
+        if (task.totp_verification_url or task.totp_identifier) and task.organization_id:
+            LOG.info(
+                "Getting magic link for CUA",
+                task_id=task.task_id,
+                organization_id=task.organization_id,
+                workflow_run_id=task.workflow_run_id,
+                totp_verification_url=task.totp_verification_url,
+                totp_identifier=task.totp_identifier,
+            )
+            try:
+                otp_value = await poll_otp_value(
+                    organization_id=task.organization_id,
+                    task_id=task.task_id,
+                    workflow_run_id=task.workflow_run_id,
+                    totp_verification_url=task.totp_verification_url,
+                    totp_identifier=task.totp_identifier,
+                )
+                if not otp_value or otp_value.get_otp_type() != OTPType.MAGIC_LINK:
+                    raise NoTOTPVerificationCodeFound()
+                magic_link = otp_value.value
+                reasoning = reasoning or "Received magic link. Navigating to the magic link URL to verify the login"
+                action = GotoUrlAction(
+                    url=magic_link,
+                    reasoning=reasoning,
+                    intention=reasoning,
+                    is_magic_link=True,
+                )
+            except NoTOTPVerificationCodeFound:
+                reasoning_suffix = "No magic link found"
+                reasoning = f"{reasoning}. {reasoning_suffix}" if reasoning else reasoning_suffix
+                action = TerminateAction(
+                    reasoning=reasoning,
+                    intention=reasoning,
+                )
+            except FailedToGetTOTPVerificationCode as e:
+                reasoning_suffix = f"Failed to get magic link. Reason: {e.reason}"
+                reasoning = f"{reasoning}. {reasoning_suffix}" if reasoning else reasoning_suffix
+                action = TerminateAction(
+                    reasoning=reasoning,
+                    intention=reasoning,
+                )
+        else:
+            action = TerminateAction(
+                reasoning=reasoning,
+                intention=reasoning,
+            )
+
     elif skyvern_action_type == "get_verification_code":
         if (task.totp_verification_url or task.totp_identifier) and task.organization_id:
             LOG.info(
@@ -778,13 +876,16 @@ async def generate_cua_fallback_actions(
                 totp_identifier=task.totp_identifier,
             )
             try:
-                verification_code = await poll_verification_code(
-                    task.task_id,
-                    task.organization_id,
+                otp_value = await poll_otp_value(
+                    organization_id=task.organization_id,
+                    task_id=task.task_id,
                     workflow_run_id=task.workflow_run_id,
                     totp_verification_url=task.totp_verification_url,
                     totp_identifier=task.totp_identifier,
                 )
+                if not otp_value or otp_value.get_otp_type() != OTPType.TOTP:
+                    raise NoTOTPVerificationCodeFound()
+                verification_code = otp_value.value
                 reasoning = reasoning or f"Received verification code: {verification_code}"
                 action = VerificationCodeAction(
                     verification_code=verification_code,
@@ -793,6 +894,13 @@ async def generate_cua_fallback_actions(
                 )
             except NoTOTPVerificationCodeFound:
                 reasoning_suffix = "No verification code found"
+                reasoning = f"{reasoning}. {reasoning_suffix}" if reasoning else reasoning_suffix
+                action = TerminateAction(
+                    reasoning=reasoning,
+                    intention=reasoning,
+                )
+            except FailedToGetTOTPVerificationCode as e:
+                reasoning_suffix = f"Failed to get verification code. Reason: {e.reason}"
                 reasoning = f"{reasoning}. {reasoning_suffix}" if reasoning else reasoning_suffix
                 action = TerminateAction(
                     reasoning=reasoning,

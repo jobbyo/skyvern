@@ -2,45 +2,39 @@ import { HelpTooltip } from "@/components/HelpTooltip";
 import { Label } from "@/components/ui/label";
 import { WorkflowBlockInput } from "@/components/WorkflowBlockInput";
 import type { Node } from "@xyflow/react";
-import {
-  Handle,
-  NodeProps,
-  Position,
-  useNodes,
-  useReactFlow,
-} from "@xyflow/react";
+import { Handle, NodeProps, Position, useNodes } from "@xyflow/react";
 import { AppNode } from "..";
 import { helpTooltips } from "../../helpContent";
 import type { LoopNode } from "./types";
-import { useState } from "react";
 import { useIsFirstBlockInWorkflow } from "../../hooks/useIsFirstNodeInWorkflow";
 import { Checkbox } from "@/components/ui/checkbox";
 import { getLoopNodeWidth } from "../../workflowEditorUtils";
-import { useDebugStore } from "@/store/useDebugStore";
 import { cn } from "@/util/utils";
 import { NodeHeader } from "../components/NodeHeader";
 import { useParams } from "react-router-dom";
+import { statusIsRunningOrQueued } from "@/routes/tasks/types";
+import { useWorkflowRunQuery } from "@/routes/workflows/hooks/useWorkflowRunQuery";
+import { useUpdate } from "@/routes/workflows/editor/useUpdate";
 
 function LoopNode({ id, data }: NodeProps<LoopNode>) {
-  const { updateNodeData } = useReactFlow();
   const nodes = useNodes<AppNode>();
   const node = nodes.find((n) => n.id === id);
   if (!node) {
     throw new Error("Node not found"); // not possible
   }
-  const { debuggable, editable, label } = data;
-  const debugStore = useDebugStore();
-  const elideFromDebugging = debugStore.isDebugMode && !debuggable;
+  const { editable, label } = data;
   const { blockLabel: urlBlockLabel } = useParams();
-  const thisBlockIsPlaying =
+  const { data: workflowRun } = useWorkflowRunQuery();
+  const workflowRunIsRunningOrQueued =
+    workflowRun && statusIsRunningOrQueued(workflowRun);
+  const thisBlockIsTargetted =
     urlBlockLabel !== undefined && urlBlockLabel === label;
-  const [inputs, setInputs] = useState({
-    loopVariableReference: data.loopVariableReference,
-  });
-
+  const thisBlockIsPlaying =
+    workflowRunIsRunningOrQueued && thisBlockIsTargetted;
+  const update = useUpdate<LoopNode["data"]>({ id, editable });
   const isFirstWorkflowBlock = useIsFirstBlockInWorkflow({ id });
-
   const children = nodes.filter((node) => node.parentId === id);
+
   const furthestDownChild: Node | null = children.reduce(
     (acc, child) => {
       if (!acc) {
@@ -60,13 +54,6 @@ function LoopNode({ id, data }: NodeProps<LoopNode>) {
     24;
 
   const loopNodeWidth = getLoopNodeWidth(node, nodes);
-  function handleChange(key: string, value: unknown) {
-    if (!data.editable) {
-      return;
-    }
-    setInputs({ ...inputs, [key]: value });
-    updateNodeData(id, { [key]: value });
-  }
 
   return (
     <div>
@@ -94,14 +81,15 @@ function LoopNode({ id, data }: NodeProps<LoopNode>) {
             className={cn(
               "transform-origin-center w-[30rem] space-y-4 rounded-lg bg-slate-elevation3 px-6 py-4 transition-all",
               {
-                "pointer-events-none bg-slate-950 outline outline-2 outline-slate-300":
-                  thisBlockIsPlaying,
+                "pointer-events-none": thisBlockIsPlaying,
+                "bg-slate-950 outline outline-2 outline-slate-300":
+                  thisBlockIsTargetted,
               },
+              data.comparisonColor,
             )}
           >
             <NodeHeader
               blockLabel={label}
-              disabled={elideFromDebugging}
               editable={editable}
               nodeId={id}
               totpIdentifier={null}
@@ -122,9 +110,9 @@ function LoopNode({ id, data }: NodeProps<LoopNode>) {
               </div>
               <WorkflowBlockInput
                 nodeId={id}
-                value={inputs.loopVariableReference}
+                value={data.loopVariableReference}
                 onChange={(value) => {
-                  handleChange("loopVariableReference", value);
+                  update({ loopVariableReference: value });
                 }}
               />
             </div>
@@ -136,7 +124,10 @@ function LoopNode({ id, data }: NodeProps<LoopNode>) {
                       checked={data.completeIfEmpty}
                       disabled={!data.editable}
                       onCheckedChange={(checked) => {
-                        handleChange("completeIfEmpty", checked);
+                        update({
+                          completeIfEmpty:
+                            checked === "indeterminate" ? false : checked,
+                        });
                       }}
                     />
                     <Label className="text-xs text-slate-300">
@@ -150,7 +141,10 @@ function LoopNode({ id, data }: NodeProps<LoopNode>) {
                       checked={data.continueOnFailure}
                       disabled={!data.editable}
                       onCheckedChange={(checked) => {
-                        handleChange("continueOnFailure", checked);
+                        update({
+                          continueOnFailure:
+                            checked === "indeterminate" ? false : checked,
+                        });
                       }}
                     />
                     <Label className="text-xs text-slate-300">

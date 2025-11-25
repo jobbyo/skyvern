@@ -12,7 +12,7 @@ export type LoginNodeData = NodeBaseData & {
   parameterKeys: Array<string>;
   totpVerificationUrl: string | null;
   totpIdentifier: string | null;
-  cacheActions: boolean;
+  disableCache: boolean;
   completeCriterion: string;
   terminateCriterion: string;
   engine: RunEngine | null;
@@ -34,7 +34,7 @@ export const loginNodeDefaultData: LoginNodeData = {
   totpVerificationUrl: null,
   totpIdentifier: null,
   continueOnFailure: false,
-  cacheActions: false,
+  disableCache: false,
   completeCriterion: "",
   terminateCriterion: "",
   engine: RunEngine.SkyvernV1,

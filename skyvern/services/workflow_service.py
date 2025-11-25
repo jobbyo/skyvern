@@ -1,3 +1,5 @@
+import typing as t
+
 import structlog
 from fastapi import BackgroundTasks, Request
 
@@ -20,6 +22,8 @@ async def prepare_workflow(
     version: int | None = None,
     max_steps: int | None = None,
     request_id: str | None = None,
+    debug_session_id: str | None = None,
+    code_gen: bool | None = None,
 ) -> WorkflowRun:
     """
     Prepare a workflow to be run.
@@ -36,6 +40,8 @@ async def prepare_workflow(
         version=version,
         max_steps_override=max_steps,
         is_template_workflow=template,
+        debug_session_id=debug_session_id,
+        code_gen=code_gen,
     )
 
     workflow = await app.WORKFLOW_SERVICE.get_workflow_by_permanent_id(
@@ -68,6 +74,8 @@ async def run_workflow(
     request_id: str | None = None,
     request: Request | None = None,
     background_tasks: BackgroundTasks | None = None,
+    block_labels: list[str] | None = None,
+    block_outputs: dict[str, t.Any] | None = None,
 ) -> WorkflowRun:
     workflow_run = await prepare_workflow(
         workflow_id=workflow_id,
@@ -85,9 +93,12 @@ async def run_workflow(
         organization=organization,
         workflow_id=workflow_run.workflow_id,
         workflow_run_id=workflow_run.workflow_run_id,
+        workflow_permanent_id=workflow_run.workflow_permanent_id,
         max_steps_override=max_steps,
         browser_session_id=workflow_request.browser_session_id,
         api_key=api_key,
+        block_labels=block_labels,
+        block_outputs=block_outputs,
     )
 
     return workflow_run
@@ -103,7 +114,7 @@ async def get_workflow_run_response(
         workflow_run_id=workflow_run.workflow_run_id,
         organization_id=organization_id,
     )
-    app_url = f"{settings.SKYVERN_APP_URL.rstrip('/')}/workflows/{workflow_run.workflow_permanent_id}/{workflow_run.workflow_run_id}"
+    app_url = f"{settings.SKYVERN_APP_URL.rstrip('/')}/runs/{workflow_run.workflow_run_id}"
     return WorkflowRunResponse(
         run_id=workflow_run_id,
         run_type=RunType.workflow_run,
@@ -119,6 +130,7 @@ async def get_workflow_run_response(
         app_url=app_url,
         created_at=workflow_run.created_at,
         modified_at=workflow_run.modified_at,
+        browser_profile_id=workflow_run.browser_profile_id,
         run_request=WorkflowRunRequest(
             workflow_id=workflow_run.workflow_permanent_id,
             title=workflow_run_resp.workflow_title,
@@ -128,6 +140,9 @@ async def get_workflow_run_response(
             totp_url=workflow_run.totp_verification_url or None,
             totp_identifier=workflow_run.totp_identifier,
             max_screenshot_scrolls=workflow_run.max_screenshot_scrolls,
+            browser_address=workflow_run.browser_address,
+            browser_profile_id=workflow_run.browser_profile_id,
             # TODO: add browser session id
         ),
+        errors=workflow_run_resp.errors,
     )

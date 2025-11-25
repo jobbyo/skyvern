@@ -4,6 +4,7 @@ import structlog
 from pydantic import BaseModel
 
 from skyvern.constants import DEFAULT_MAX_TOKENS
+from skyvern.errors.errors import UserDefinedError
 from skyvern.forge.sdk.prompting import PromptEngine
 from skyvern.utils.token_counter import count_tokens
 from skyvern.webeye.scraper.scraper import ElementTreeBuilder
@@ -20,7 +21,20 @@ class CheckPhoneNumberFormatResponse(BaseModel):
     recommended_phone_number: str | None
 
 
+class CheckDateFormatResponse(BaseModel):
+    page_info: str
+    thought: str
+    is_current_format_correct: bool
+    recommended_date: str | None
+
+
 HTMLTreeStr = str
+
+
+class MaxStepsReasonResponse(BaseModel):
+    page_info: str
+    reasoning: str
+    errors: list[UserDefinedError]
 
 
 def load_prompt_with_elements(

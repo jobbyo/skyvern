@@ -1,25 +1,19 @@
-import { useMountEffect } from "@/hooks/useMountEffect";
-import { useSidebarStore } from "@/store/SidebarStore";
-import { useWorkflowHasChangesStore } from "@/store/WorkflowHasChangesStore";
 import { ReactFlowProvider } from "@xyflow/react";
 import { useParams } from "react-router-dom";
+import { useEffect } from "react";
 import { useWorkflowQuery } from "../hooks/useWorkflowQuery";
-import { FlowRenderer } from "./FlowRenderer";
 import { getElements } from "./workflowEditorUtils";
 import { LogoMinimized } from "@/components/LogoMinimized";
 import { WorkflowSettings } from "../types/workflowTypes";
 import { useGlobalWorkflowsQuery } from "../hooks/useGlobalWorkflowsQuery";
+import { useBlockOutputStore } from "@/store/BlockOutputStore";
+import { useWorkflowParametersStore } from "@/store/WorkflowParametersStore";
 import { getInitialParameters } from "./utils";
+import { Workspace } from "./Workspace";
+import { useMountEffect } from "@/hooks/useMountEffect";
 
 function WorkflowEditor() {
   const { workflowPermanentId } = useParams();
-  const setCollapsed = useSidebarStore((state) => {
-    return state.setCollapsed;
-  });
-  const setHasChanges = useWorkflowHasChangesStore(
-    (state) => state.setHasChanges,
-  );
-
   const { data: workflow, isLoading } = useWorkflowQuery({
     workflowPermanentId,
   });
@@ -27,10 +21,20 @@ function WorkflowEditor() {
   const { data: globalWorkflows, isLoading: isGlobalWorkflowsLoading } =
     useGlobalWorkflowsQuery();
 
-  useMountEffect(() => {
-    setCollapsed(true);
-    setHasChanges(false);
-  });
+  const setParameters = useWorkflowParametersStore(
+    (state) => state.setParameters,
+  );
+
+  const blockOutputStore = useBlockOutputStore();
+
+  useMountEffect(() => blockOutputStore.reset());
+
+  useEffect(() => {
+    if (workflow) {
+      const initialParameters = getInitialParameters(workflow);
+      setParameters(initialParameters);
+    }
+  }, [workflow, setParameters]);
 
   if (isLoading || isGlobalWorkflowsLoading) {
     return (
@@ -58,6 +62,11 @@ function WorkflowEditor() {
     extraHttpHeaders: workflow.extra_http_headers
       ? JSON.stringify(workflow.extra_http_headers)
       : null,
+    runWith: workflow.run_with,
+    scriptCacheKey: workflow.cache_key,
+    aiFallback: workflow.ai_fallback ?? true,
+    runSequentially: workflow.run_sequentially ?? false,
+    sequentialKey: workflow.sequential_key ?? null,
   };
 
   const elements = getElements(
@@ -69,11 +78,11 @@ function WorkflowEditor() {
   return (
     <div className="relative flex h-screen w-full">
       <ReactFlowProvider>
-        <FlowRenderer
+        <Workspace
           initialEdges={elements.edges}
           initialNodes={elements.nodes}
-          initialParameters={getInitialParameters(workflow)}
           initialTitle={workflow.title}
+          showBrowser={false}
           workflow={workflow}
         />
       </ReactFlowProvider>

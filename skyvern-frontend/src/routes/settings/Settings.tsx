@@ -14,13 +14,15 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { envCredential } from "@/util/env";
+import { getRuntimeApiKey } from "@/util/env";
 import { HiddenCopyableInput } from "@/components/ui/hidden-copyable-input";
+import { OnePasswordTokenForm } from "@/components/OnePasswordTokenForm";
+import { AzureClientSecretCredentialTokenForm } from "@/components/AzureClientSecretCredentialTokenForm";
 
 function Settings() {
   const { environment, organization, setEnvironment, setOrganization } =
     useSettingsStore();
-  const apiKey = envCredential;
+  const apiKey = getRuntimeApiKey();
 
   return (
     <div className="flex flex-col gap-8">
@@ -65,6 +67,34 @@ function Settings() {
         </CardHeader>
         <CardContent className="p-8">
           <HiddenCopyableInput value={apiKey ?? "API key not found"} />
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader className="border-b-2">
+          <CardTitle className="text-lg">1Password Integration</CardTitle>
+          <CardDescription>
+            Manage your 1Password service account token.{" "}
+            <a
+              href="https://developer.1password.com/docs/service-accounts/get-started/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-600 underline"
+            >
+              Learn how to create a service account and get your token.
+            </a>
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="p-8">
+          <OnePasswordTokenForm />
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader className="border-b-2">
+          <CardTitle className="text-lg">Azure Integration</CardTitle>
+          <CardDescription>Manage your Azure integration</CardDescription>
+        </CardHeader>
+        <CardContent className="p-8">
+          <AzureClientSecretCredentialTokenForm />
         </CardContent>
       </Card>
     </div>

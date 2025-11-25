@@ -14,10 +14,31 @@
   @apply bg-slate-elevation3;
 }
 
+/* Smooth transitions for node position and size changes */
+.react-flow__node {
+  transition: transform 0.3s ease-in-out;
+}
+
+/* Smooth transitions for edge position updates */
+.react-flow__edge path,
+.react-flow__edge-path {
+  transition: d 0.3s ease-in-out;
+}
+
+.react-flow__edge text,
+.react-flow__edge-text {
+  transition: transform 0.3s ease-in-out;
+}
+
 .react-flow__handle-top {
   top: 3px;
 }
 
 .react-flow__handle-bottom {
   bottom: 3px;
+}
+
+.react-flow__attribution {
+  background-color: rgb(2 6 23);
+  color: white;
 }

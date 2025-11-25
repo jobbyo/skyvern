@@ -7,7 +7,7 @@ from typing import BinaryIO
 import structlog
 
 from skyvern.config import settings
-from skyvern.constants import DOWNLOAD_FILE_PREFIX
+from skyvern.constants import BROWSER_DOWNLOADING_SUFFIX, DOWNLOAD_FILE_PREFIX
 from skyvern.forge.sdk.api.aws import AsyncAWSClient, S3StorageClass
 from skyvern.forge.sdk.api.files import (
     calculate_sha256_for_file,
@@ -83,6 +83,22 @@ class S3Storage(BaseStorage):
     ) -> str:
         file_ext = FILE_EXTENTSION_MAP[artifact_type]
         return f"{self._build_base_uri(organization_id)}/ai_suggestions/{ai_suggestion.ai_suggestion_id}/{datetime.utcnow().isoformat()}_{artifact_id}_{artifact_type}.{file_ext}"
+
+    def build_script_file_uri(
+        self, *, organization_id: str, script_id: str, script_version: int, file_path: str
+    ) -> str:
+        """Build the S3 URI for a script file.
+
+        Args:
+            organization_id: The organization ID
+            script_id: The script ID
+            script_version: The script version
+            file_path: The file path relative to script root
+
+        Returns:
+            The S3 URI for the script file
+        """
+        return f"{self._build_base_uri(organization_id)}/scripts/{script_id}/{script_version}/{file_path}"
 
     async def store_artifact(self, artifact: Artifact, data: bytes) -> None:
         sc = await self._get_storage_class_for_org(artifact.organization_id)
@@ -179,14 +195,152 @@ class S3Storage(BaseStorage):
         temp_zip_file.close()
         return temp_dir
 
-    async def save_downloaded_files(
-        self, organization_id: str, task_id: str | None, workflow_run_id: str | None
-    ) -> None:
-        download_dir = get_download_dir(workflow_run_id=workflow_run_id, task_id=task_id)
+    async def store_browser_profile(self, organization_id: str, profile_id: str, directory: str) -> None:
+        """Store browser profile to S3."""
+        temp_zip_file = create_named_temporary_file()
+        zip_file_path = shutil.make_archive(temp_zip_file.name, "zip", directory)
+        profile_uri = (
+            f"s3://{settings.AWS_S3_BUCKET_BROWSER_SESSIONS}/{settings.ENV}/{organization_id}/profiles/{profile_id}.zip"
+        )
+        sc = await self._get_storage_class_for_org(organization_id)
+        tags = await self._get_tags_for_org(organization_id)
+        LOG.debug(
+            "Storing browser profile",
+            organization_id=organization_id,
+            profile_id=profile_id,
+            zip_file_path=zip_file_path,
+            profile_uri=profile_uri,
+            storage_class=sc,
+            tags=tags,
+        )
+        await self.async_client.upload_file_from_path(profile_uri, zip_file_path, storage_class=sc, tags=tags)
+
+    async def retrieve_browser_profile(self, organization_id: str, profile_id: str) -> str | None:
+        """Retrieve browser profile from S3."""
+        profile_uri = (
+            f"s3://{settings.AWS_S3_BUCKET_BROWSER_SESSIONS}/{settings.ENV}/{organization_id}/profiles/{profile_id}.zip"
+        )
+        downloaded_zip_bytes = await self.async_client.download_file(profile_uri, log_exception=True)
+        if not downloaded_zip_bytes:
+            return None
+        temp_zip_file = create_named_temporary_file(delete=False)
+        temp_zip_file.write(downloaded_zip_bytes)
+        temp_zip_file_path = temp_zip_file.name
+
+        temp_dir = make_temp_directory(prefix="skyvern_browser_profile_")
+        unzip_files(temp_zip_file_path, temp_dir)
+        temp_zip_file.close()
+        return temp_dir
+
+    async def list_downloaded_files_in_browser_session(
+        self, organization_id: str, browser_session_id: str
+    ) -> list[str]:
+        uri = f"s3://{settings.AWS_S3_BUCKET_ARTIFACTS}/v1/{settings.ENV}/{organization_id}/browser_sessions/{browser_session_id}/downloads"
+        return [
+            f"s3://{settings.AWS_S3_BUCKET_ARTIFACTS}/{file}" for file in await self.async_client.list_files(uri=uri)
+        ]
+
+    async def get_shared_downloaded_files_in_browser_session(
+        self, organization_id: str, browser_session_id: str
+    ) -> list[FileInfo]:
+        object_keys = await self.list_downloaded_files_in_browser_session(organization_id, browser_session_id)
+        if len(object_keys) == 0:
+            return []
+
+        file_infos: list[FileInfo] = []
+        for key in object_keys:
+            metadata = {}
+            modified_at: datetime | None = None
+            # Get metadata (including checksum)
+            try:
+                object_info = await self.async_client.get_object_info(key)
+                metadata = object_info.get("Metadata", {})
+                modified_at = object_info.get("LastModified")
+            except Exception:
+                LOG.exception("Object info retrieval failed", uri=key)
+
+            # Create FileInfo object
+            filename = os.path.basename(key)
+            checksum = metadata.get("sha256_checksum") if metadata else None
+
+            # Get presigned URL
+            presigned_urls = await self.async_client.create_presigned_urls([key])
+            if not presigned_urls:
+                continue
+
+            file_info = FileInfo(
+                url=presigned_urls[0],
+                checksum=checksum,
+                filename=metadata.get("original_filename", filename) if metadata else filename,
+                modified_at=modified_at,
+            )
+            file_infos.append(file_info)
+
+        return file_infos
+
+    async def list_downloading_files_in_browser_session(
+        self, organization_id: str, browser_session_id: str
+    ) -> list[str]:
+        uri = f"s3://{settings.AWS_S3_BUCKET_ARTIFACTS}/v1/{settings.ENV}/{organization_id}/browser_sessions/{browser_session_id}/downloads"
+        files = [
+            f"s3://{settings.AWS_S3_BUCKET_ARTIFACTS}/{file}" for file in await self.async_client.list_files(uri=uri)
+        ]
+        return [file for file in files if file.endswith(BROWSER_DOWNLOADING_SUFFIX)]
+
+    async def list_recordings_in_browser_session(self, organization_id: str, browser_session_id: str) -> list[str]:
+        """List all recording files for a browser session from S3."""
+        uri = f"s3://{settings.AWS_S3_BUCKET_ARTIFACTS}/v1/{settings.ENV}/{organization_id}/browser_sessions/{browser_session_id}/videos"
+        return [
+            f"s3://{settings.AWS_S3_BUCKET_ARTIFACTS}/{file}" for file in await self.async_client.list_files(uri=uri)
+        ]
+
+    async def get_shared_recordings_in_browser_session(
+        self, organization_id: str, browser_session_id: str
+    ) -> list[FileInfo]:
+        """Get recording files with presigned URLs for a browser session."""
+        object_keys = await self.list_recordings_in_browser_session(organization_id, browser_session_id)
+        if len(object_keys) == 0:
+            return []
+
+        file_infos: list[FileInfo] = []
+        for key in object_keys:
+            metadata = {}
+            modified_at: datetime | None = None
+            # Get metadata (including checksum)
+            try:
+                object_info = await self.async_client.get_object_info(key)
+                metadata = object_info.get("Metadata", {})
+                modified_at = object_info.get("LastModified")
+            except Exception:
+                LOG.exception("Recording object info retrieval failed", uri=key)
+
+            # Create FileInfo object
+            filename = os.path.basename(key)
+            checksum = metadata.get("sha256_checksum") if metadata else None
+
+            # Get presigned URL
+            presigned_urls = await self.async_client.create_presigned_urls([key])
+            if not presigned_urls:
+                continue
+
+            file_info = FileInfo(
+                url=presigned_urls[0],
+                checksum=checksum,
+                filename=metadata.get("original_filename", filename) if metadata else filename,
+                modified_at=modified_at,
+            )
+            file_infos.append(file_info)
+
+        return file_infos
+
+    async def save_downloaded_files(self, organization_id: str, run_id: str | None) -> None:
+        download_dir = get_download_dir(run_id=run_id)
         files = os.listdir(download_dir)
         sc = await self._get_storage_class_for_org(organization_id)
         tags = await self._get_tags_for_org(organization_id)
-        base_uri = f"s3://{settings.AWS_S3_BUCKET_UPLOADS}/{DOWNLOAD_FILE_PREFIX}/{settings.ENV}/{organization_id}/{workflow_run_id or task_id}"
+        base_uri = (
+            f"s3://{settings.AWS_S3_BUCKET_UPLOADS}/{DOWNLOAD_FILE_PREFIX}/{settings.ENV}/{organization_id}/{run_id}"
+        )
         for file in files:
             fpath = os.path.join(download_dir, file)
             if not os.path.isfile(fpath):
@@ -209,10 +363,8 @@ class S3Storage(BaseStorage):
                 tags=tags,
             )
 
-    async def get_downloaded_files(
-        self, organization_id: str, task_id: str | None, workflow_run_id: str | None
-    ) -> list[FileInfo]:
-        uri = f"s3://{settings.AWS_S3_BUCKET_UPLOADS}/{DOWNLOAD_FILE_PREFIX}/{settings.ENV}/{organization_id}/{workflow_run_id or task_id}"
+    async def get_downloaded_files(self, organization_id: str, run_id: str | None) -> list[FileInfo]:
+        uri = f"s3://{settings.AWS_S3_BUCKET_UPLOADS}/{DOWNLOAD_FILE_PREFIX}/{settings.ENV}/{organization_id}/{run_id}"
         object_keys = await self.async_client.list_files(uri=uri)
         if len(object_keys) == 0:
             return []

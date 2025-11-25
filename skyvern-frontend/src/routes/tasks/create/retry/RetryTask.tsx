@@ -1,9 +1,9 @@
-import { useParams } from "react-router-dom";
 import { useTaskQuery } from "../../detail/hooks/useTaskQuery";
 import { CreateNewTaskForm } from "../CreateNewTaskForm";
+import { useFirstParam } from "@/hooks/useFirstParam";
 
 function RetryTask() {
-  const { taskId } = useParams();
+  const taskId = useFirstParam("taskId", "runId");
   const { data: task, isLoading } = useTaskQuery({ id: taskId });
 
   if (isLoading) {
@@ -48,6 +48,7 @@ function RetryTask() {
           extraHttpHeaders: task.request.extra_http_headers
             ? JSON.stringify(task.request.extra_http_headers)
             : null,
+          cdpAddress: task.request.browser_address ?? null,
         }}
       />
     </div>

@@ -72,6 +72,19 @@ export type OnePasswordCredentialParameter = WorkflowParameterBase & {
   deleted_at: string | null;
 };
 
+export type AzureVaultCredentialParameter = WorkflowParameterBase & {
+  parameter_type: "azure_vault_credential";
+  workflow_id: string;
+  azure_vault_credential_parameter_id: string;
+  vault_name: string;
+  username_key: string;
+  password_key: string;
+  totp_secret_key: string | null;
+  created_at: string;
+  modified_at: string;
+  deleted_at: string | null;
+};
+
 export type CredentialParameter = WorkflowParameterBase & {
   parameter_type: "credential";
   workflow_id: string;
@@ -130,6 +143,7 @@ export const WorkflowParameterTypes = {
   Bitwarden_Sensitive_Information: "bitwarden_sensitive_information",
   Bitwarden_Credit_Card_Data: "bitwarden_credit_card_data",
   OnePassword: "onepassword",
+  Azure_Vault_Credential: "azure_vault_credential",
   Credential: "credential",
 } as const;
 
@@ -145,6 +159,7 @@ export function isDisplayedInWorkflowEditor(
   | BitwardenLoginCredentialParameter
   | BitwardenSensitiveInformationParameter
   | OnePasswordCredentialParameter
+  | AzureVaultCredentialParameter
   | CredentialParameter {
   return (
     parameter.parameter_type === WorkflowParameterTypes.Workflow ||
@@ -156,6 +171,8 @@ export function isDisplayedInWorkflowEditor(
     parameter.parameter_type ===
       WorkflowParameterTypes.Bitwarden_Credit_Card_Data ||
     parameter.parameter_type === WorkflowParameterTypes.OnePassword ||
+    parameter.parameter_type ===
+      WorkflowParameterTypes.Azure_Vault_Credential ||
     parameter.parameter_type === WorkflowParameterTypes.Credential
   );
 }
@@ -168,6 +185,7 @@ export type Parameter =
   | BitwardenSensitiveInformationParameter
   | BitwardenCreditCardDataParameter
   | OnePasswordCredentialParameter
+  | AzureVaultCredentialParameter
   | AWSSecretParameter
   | CredentialParameter;
 
@@ -182,6 +200,7 @@ export type WorkflowBlock =
   | SendEmailBlock
   | FileURLParserBlock
   | ValidationBlock
+  | HumanInteractionBlock
   | ActionBlock
   | NavigationBlock
   | ExtractionBlock
@@ -204,6 +223,7 @@ export const WorkflowBlockTypes = {
   SendEmail: "send_email",
   FileURLParser: "file_url_parser",
   Validation: "validation",
+  HumanInteraction: "human_interaction",
   Action: "action",
   Navigation: "navigation",
   Extraction: "extraction",
@@ -216,15 +236,20 @@ export const WorkflowBlockTypes = {
   HttpRequest: "http_request",
 } as const;
 
-export const debuggableWorkflowBlockTypes: Set<WorkflowBlockType> = new Set([
+// all of them
+export const debuggableWorkflowBlockTypes: Set<WorkflowBlockType> = new Set(
+  Object.values(WorkflowBlockTypes),
+);
+
+export const scriptableWorkflowBlockTypes: Set<WorkflowBlockType> = new Set([
   "action",
   "extraction",
+  "file_download",
   "goto_url",
   "login",
   "navigation",
   "task",
   "task_v2",
-  "text_prompt",
   "validation",
 ]);
 
@@ -263,6 +288,7 @@ export type WorkflowBlockBase = {
   output_parameter: OutputParameter;
   continue_on_failure: boolean;
   model: WorkflowModel | null;
+  next_block_label?: string | null;
 };
 
 export type TaskBlock = WorkflowBlockBase & {
@@ -282,7 +308,7 @@ export type TaskBlock = WorkflowBlockBase & {
   download_suffix?: string | null;
   totp_verification_url?: string | null;
   totp_identifier?: string | null;
-  cache_actions: boolean;
+  disable_cache?: boolean;
   include_action_history_in_verification: boolean;
   engine: RunEngine | null;
 };
@@ -294,6 +320,7 @@ export type Taskv2Block = WorkflowBlockBase & {
   totp_verification_url: string | null;
   totp_identifier: string | null;
   max_steps: number | null;
+  disable_cache: boolean;
 };
 
 export type ForLoopBlock = WorkflowBlockBase & {
@@ -331,11 +358,14 @@ export type UploadToS3Block = WorkflowBlockBase & {
 export type FileUploadBlock = WorkflowBlockBase & {
   block_type: "file_upload";
   path: string;
-  storage_type: string;
-  s3_bucket: string;
-  region_name: string;
-  aws_access_key_id: string;
-  aws_secret_access_key: string;
+  storage_type: "s3" | "azure";
+  s3_bucket: string | null;
+  region_name: string | null;
+  aws_access_key_id: string | null;
+  aws_secret_access_key: string | null;
+  azure_storage_account_name: string | null;
+  azure_storage_account_key: string | null;
+  azure_blob_container_name: string | null;
 };
 
 export type SendEmailBlock = WorkflowBlockBase & {
@@ -354,7 +384,8 @@ export type SendEmailBlock = WorkflowBlockBase & {
 export type FileURLParserBlock = WorkflowBlockBase & {
   block_type: "file_url_parser";
   file_url: string;
-  file_type: "csv";
+  file_type: "csv" | "excel" | "pdf";
+  json_schema: Record<string, unknown> | null;
 };
 
 export type ValidationBlock = WorkflowBlockBase & {
@@ -363,6 +394,21 @@ export type ValidationBlock = WorkflowBlockBase & {
   terminate_criterion: string | null;
   error_code_mapping: Record<string, string> | null;
   parameters: Array<WorkflowParameter>;
+  disable_cache?: boolean;
+};
+
+export type HumanInteractionBlock = WorkflowBlockBase & {
+  block_type: "human_interaction";
+
+  instructions: string;
+  positive_descriptor: string;
+  negative_descriptor: string;
+  timeout_seconds: number;
+
+  sender: string;
+  recipients: Array<string>;
+  subject: string;
+  body: string;
 };
 
 export type ActionBlock = WorkflowBlockBase & {
@@ -378,7 +424,7 @@ export type ActionBlock = WorkflowBlockBase & {
   download_suffix?: string | null;
   totp_verification_url?: string | null;
   totp_identifier?: string | null;
-  cache_actions: boolean;
+  disable_cache?: boolean;
   engine: RunEngine | null;
 };
 
@@ -395,7 +441,7 @@ export type NavigationBlock = WorkflowBlockBase & {
   download_suffix?: string | null;
   totp_verification_url?: string | null;
   totp_identifier?: string | null;
-  cache_actions: boolean;
+  disable_cache?: boolean;
   complete_criterion: string | null;
   terminate_criterion: string | null;
   engine: RunEngine | null;
@@ -411,7 +457,7 @@ export type ExtractionBlock = WorkflowBlockBase & {
   max_retries?: number;
   max_steps_per_run?: number | null;
   parameters: Array<WorkflowParameter>;
-  cache_actions: boolean;
+  disable_cache?: boolean;
   engine: RunEngine | null;
 };
 
@@ -426,7 +472,7 @@ export type LoginBlock = WorkflowBlockBase & {
   parameters: Array<WorkflowParameter>;
   totp_verification_url?: string | null;
   totp_identifier?: string | null;
-  cache_actions: boolean;
+  disable_cache?: boolean;
   complete_criterion: string | null;
   terminate_criterion: string | null;
   engine: RunEngine | null;
@@ -449,8 +495,9 @@ export type FileDownloadBlock = WorkflowBlockBase & {
   parameters: Array<WorkflowParameter>;
   totp_verification_url?: string | null;
   totp_identifier?: string | null;
-  cache_actions: boolean;
+  disable_cache?: boolean;
   engine: RunEngine | null;
+  download_timeout: number | null; // seconds
 };
 
 export type PDFParserBlock = WorkflowBlockBase & {
@@ -476,6 +523,7 @@ export type HttpRequestBlock = WorkflowBlockBase & {
 };
 
 export type WorkflowDefinition = {
+  version?: number | null;
   parameters: Array<Parameter>;
   blocks: Array<WorkflowBlock>;
 };
@@ -497,9 +545,17 @@ export type WorkflowApiResponse = {
   totp_verification_url: string | null;
   totp_identifier: string | null;
   max_screenshot_scrolls: number | null;
+  status: string | null;
   created_at: string;
   modified_at: string;
   deleted_at: string | null;
+  run_with: string | null; // 'agent' or 'code'
+  cache_key: string | null;
+  ai_fallback: boolean | null;
+  run_sequentially: boolean | null;
+  sequential_key: string | null;
+  folder_id: string | null;
+  import_error: string | null;
 };
 
 export type WorkflowSettings = {
@@ -509,6 +565,11 @@ export type WorkflowSettings = {
   model: WorkflowModel | null;
   maxScreenshotScrolls: number | null;
   extraHttpHeaders: string | null;
+  runWith: string | null; // 'agent' or 'code'
+  scriptCacheKey: string | null;
+  aiFallback: boolean | null;
+  runSequentially: boolean;
+  sequentialKey: string | null;
 };
 
 export type WorkflowModel = JsonObjectExtendable<{ model_name: string }>;
@@ -518,3 +579,9 @@ export function isOutputParameter(
 ): parameter is OutputParameter {
   return parameter.parameter_type === "output";
 }
+
+export type ImprovePromptForWorkflowResponse = {
+  error: string | null;
+  improved: string;
+  original: string;
+};

@@ -7,6 +7,7 @@ from skyvern.forge.sdk.models import Step
 from skyvern.forge.sdk.schemas.ai_suggestions import AISuggestion
 from skyvern.forge.sdk.schemas.task_v2 import TaskV2, Thought
 from skyvern.forge.sdk.settings_manager import SettingsManager
+from skyvern.utils.image_resizer import Resolution
 
 
 class LiteLLMParams(TypedDict, total=False):
@@ -16,6 +17,7 @@ class LiteLLMParams(TypedDict, total=False):
     model_info: dict[str, Any] | None
     vertex_credentials: str | None
     vertex_location: str | None
+    thinking: dict[str, Any] | None
 
 
 @dataclass(frozen=True)
@@ -94,7 +96,13 @@ class LLMAPIHandler(Protocol):
         ai_suggestion: AISuggestion | None = None,
         screenshots: list[bytes] | None = None,
         parameters: dict[str, Any] | None = None,
-    ) -> Awaitable[dict[str, Any]]: ...
+        organization_id: str | None = None,
+        tools: list | None = None,
+        use_message_history: bool = False,
+        raw_response: bool = False,
+        window_dimension: Resolution | None = None,
+        force_dict: bool = True,
+    ) -> Awaitable[dict[str, Any] | Any]: ...
 
 
 async def dummy_llm_api_handler(
@@ -106,5 +114,11 @@ async def dummy_llm_api_handler(
     ai_suggestion: AISuggestion | None = None,
     screenshots: list[bytes] | None = None,
     parameters: dict[str, Any] | None = None,
-) -> dict[str, Any]:
+    organization_id: str | None = None,
+    tools: list | None = None,
+    use_message_history: bool = False,
+    raw_response: bool = False,
+    window_dimension: Resolution | None = None,
+    force_dict: bool = True,
+) -> dict[str, Any] | Any:
     raise NotImplementedError("Your LLM provider is not configured. Please configure it in the .env file.")

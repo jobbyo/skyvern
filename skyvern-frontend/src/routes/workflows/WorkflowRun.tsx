@@ -1,8 +1,14 @@
+import { AxiosError } from "axios";
+import { useEffect, useState } from "react";
 import { getClient } from "@/api/AxiosClient";
 import { ProxyLocation, Status } from "@/api/types";
 import { StatusBadge } from "@/components/StatusBadge";
-import { SwitchBarNavigation } from "@/components/SwitchBarNavigation";
+import {
+  SwitchBarNavigation,
+  type SwitchBarNavigationOption,
+} from "@/components/SwitchBarNavigation";
 import { Button } from "@/components/ui/button";
+import { Status404 } from "@/components/Status404";
 import {
   Dialog,
   DialogClose,
@@ -17,18 +23,18 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/use-toast";
 import { useApiCredential } from "@/hooks/useApiCredential";
 import { useCredentialGetter } from "@/hooks/useCredentialGetter";
-import { apiBaseUrl } from "@/util/env";
+import { runsApiBaseUrl } from "@/util/env";
 import {
+  CodeIcon,
   FileIcon,
   Pencil2Icon,
   PlayIcon,
   ReloadIcon,
 } from "@radix-ui/react-icons";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Link, Outlet, useParams, useSearchParams } from "react-router-dom";
-import { statusIsFinalized, statusIsRunningOrQueued } from "../tasks/types";
-import { useWorkflowQuery } from "./hooks/useWorkflowQuery";
-import { useWorkflowRunQuery } from "./hooks/useWorkflowRunQuery";
+import { Link, Outlet, useSearchParams } from "react-router-dom";
+import { statusIsCancellable, statusIsFinalized } from "../tasks/types";
+import { useWorkflowRunWithWorkflowQuery } from "./hooks/useWorkflowRunWithWorkflowQuery";
 import { WorkflowRunTimeline } from "./workflowRun/WorkflowRunTimeline";
 import { useWorkflowRunTimelineQuery } from "./hooks/useWorkflowRunTimelineQuery";
 import { findActiveItem } from "./workflowRun/workflowTimelineUtils";
@@ -36,30 +42,76 @@ import { Label } from "@/components/ui/label";
 import { CodeEditor } from "./components/CodeEditor";
 import { cn } from "@/util/utils";
 import { ScrollArea, ScrollAreaViewport } from "@/components/ui/scroll-area";
-import { CopyApiCommandDropdown } from "@/components/CopyApiCommandDropdown";
+import { ApiWebhookActionsMenu } from "@/components/ApiWebhookActionsMenu";
+import { WebhookReplayDialog } from "@/components/WebhookReplayDialog";
+import { useFirstParam } from "@/hooks/useFirstParam";
 import { type ApiCommandOptions } from "@/util/apiCommands";
+import { useBlockScriptsQuery } from "@/routes/workflows/hooks/useBlockScriptsQuery";
+import { constructCacheKeyValue } from "@/routes/workflows/editor/utils";
+import { useCacheKeyValuesQuery } from "@/routes/workflows/hooks/useCacheKeyValuesQuery";
+import { WorkflowRunStatusAlert } from "@/routes/workflows/workflowRun/WorkflowRunStatusAlert";
 
 function WorkflowRun() {
   const [searchParams, setSearchParams] = useSearchParams();
   const embed = searchParams.get("embed");
   const isEmbedded = embed === "true";
   const active = searchParams.get("active");
-  const { workflowRunId, workflowPermanentId } = useParams();
+  const workflowRunId = useFirstParam("workflowRunId", "runId");
   const credentialGetter = useCredentialGetter();
   const apiCredential = useApiCredential();
   const queryClient = useQueryClient();
-
-  const { data: workflow, isLoading: workflowIsLoading } = useWorkflowQuery({
-    workflowPermanentId,
-  });
 
   const {
     data: workflowRun,
     isLoading: workflowRunIsLoading,
     isFetched,
-  } = useWorkflowRunQuery();
+    error,
+  } = useWorkflowRunWithWorkflowQuery();
+
+  const status = (error as AxiosError | undefined)?.response?.status;
+  const workflow = workflowRun?.workflow;
+  const workflowPermanentId = workflow?.workflow_permanent_id;
+  const cacheKey = workflow?.cache_key ?? "";
+  const isFinalized = workflowRun ? statusIsFinalized(workflowRun) : null;
+
+  const [hasPublishedCode, setHasPublishedCode] = useState(false);
+
+  const [cacheKeyValue, setCacheKeyValue] = useState(
+    cacheKey === ""
+      ? ""
+      : constructCacheKeyValue({ codeKey: cacheKey, workflow, workflowRun }),
+  );
+
+  const { data: cacheKeyValues } = useCacheKeyValuesQuery({
+    cacheKey,
+    debounceMs: 100,
+    page: 1,
+    workflowPermanentId,
+  });
+
+  useEffect(() => {
+    setCacheKeyValue(
+      constructCacheKeyValue({ codeKey: cacheKey, workflow, workflowRun }) ??
+        cacheKeyValues?.values[0],
+    );
+  }, [cacheKey, cacheKeyValues, setCacheKeyValue, workflow, workflowRun]);
+
+  const { data: blockScriptsPublished } = useBlockScriptsQuery({
+    cacheKey,
+    cacheKeyValue,
+    workflowPermanentId,
+    pollIntervalMs: !hasPublishedCode && !isFinalized ? 3000 : undefined,
+    status: "published",
+    workflowRunId: workflowRun?.workflow_run_id,
+  });
+
+  useEffect(() => {
+    const keys = Object.keys(blockScriptsPublished ?? {});
+    setHasPublishedCode(keys.length > 0);
+  }, [blockScriptsPublished, setHasPublishedCode]);
 
   const { data: workflowRunTimeline } = useWorkflowRunTimelineQuery();
+  const [replayOpen, setReplayOpen] = useState(false);
 
   const cancelWorkflowMutation = useMutation({
     mutationFn: async () => {
@@ -90,8 +142,8 @@ function WorkflowRun() {
     },
   });
 
-  const workflowRunIsRunningOrQueued =
-    workflowRun && statusIsRunningOrQueued(workflowRun);
+  const workflowRunIsCancellable =
+    workflowRun && statusIsCancellable(workflowRun);
 
   const workflowRunIsFinalized = workflowRun && statusIsFinalized(workflowRun);
   const selection = findActiveItem(
@@ -104,7 +156,7 @@ function WorkflowRun() {
     workflowRun?.proxy_location ?? ProxyLocation.Residential;
   const maxScreenshotScrolls = workflowRun?.max_screenshot_scrolls ?? null;
 
-  const title = workflowIsLoading ? (
+  const title = workflowRunIsLoading ? (
     <Skeleton className="h-9 w-48" />
   ) : (
     <h1 className="text-3xl">
@@ -117,6 +169,31 @@ function WorkflowRun() {
     </h1>
   );
 
+  const failureTips: { match: (reason: string) => boolean; tip: string }[] = [
+    {
+      match: (reason) => reason.includes("Invalid master password"),
+      tip: "Tip: If inputting the master password via Docker Compose or in any container environment, make sure to double any dollar signs and do not surround it with quotes.",
+    },
+    // Add more tips as needed
+  ];
+
+  const failureReason = workflowRun?.failure_reason;
+
+  const matchedTips = failureReason
+    ? failureTips
+        .filter(({ match }) => match(failureReason))
+        .map(({ tip }, index) => (
+          <div key={index} className="text-sm italic text-red-700">
+            {tip}
+          </div>
+        ))
+    : null;
+
+  const failureReasonTitle =
+    workflowRun?.status === Status.Terminated
+      ? "Termination Reason"
+      : "Failure Reason";
+
   const workflowFailureReason = workflowRun?.failure_reason ? (
     <div
       className="space-y-2 rounded-md border border-red-600 p-4"
@@ -124,8 +201,9 @@ function WorkflowRun() {
         backgroundColor: "rgba(220, 38, 38, 0.10)",
       }}
     >
-      <div className="font-bold">Workflow Failure Reason</div>
+      <div className="font-bold">{failureReasonTitle}</div>
       <div className="text-sm">{workflowRun.failure_reason}</div>
+      {matchedTips}
     </div>
   ) : null;
 
@@ -137,6 +215,19 @@ function WorkflowRun() {
   }
 
   const isTaskv2Run = workflowRun && workflowRun.task_v2 !== null;
+
+  const webhookFailureReasonData =
+    workflowRun?.task_v2?.webhook_failure_reason ??
+    workflowRun?.webhook_failure_reason;
+
+  const webhookFailureReason = webhookFailureReasonData ? (
+    <div className="space-y-4">
+      <Label>Webhook Failure Reason</Label>
+      <div className="rounded-md border border-yellow-600 p-4 text-sm">
+        {webhookFailureReasonData}
+      </div>
+    </div>
+  ) : null;
 
   const outputs = workflowRun?.outputs;
   const extractedInformation =
@@ -166,49 +257,112 @@ function WorkflowRun() {
 
   const showOutputSection =
     workflowRunIsFinalized &&
-    (hasSomeExtractedInformation || hasFileUrls || hasTaskv2Output) &&
+    (hasSomeExtractedInformation ||
+      hasFileUrls ||
+      hasTaskv2Output ||
+      webhookFailureReasonData) &&
     workflowRun.status === Status.Completed;
+
+  const isGeneratingCode = !isFinalized && !hasPublishedCode;
+
+  const switchBarOptions: SwitchBarNavigationOption[] = [
+    {
+      label: "Overview",
+      to: "overview",
+    },
+    {
+      label: "Output",
+      to: "output",
+    },
+    {
+      label: "Parameters",
+      to: "parameters",
+    },
+    {
+      label: "Recording",
+      to: "recording",
+    },
+    {
+      label: "Code",
+      to: "code",
+      icon: !isGeneratingCode ? (
+        <CodeIcon className="inline-block size-5" />
+      ) : (
+        <ReloadIcon className="inline-block size-5 animate-spin" />
+      ),
+    },
+  ];
+
+  if (status === 404) {
+    return <Status404 />;
+  }
 
   return (
     <div className="space-y-8">
       {!isEmbedded && (
         <header className="flex justify-between">
           <div className="space-y-3">
-            <div className="flex items-center gap-5">
+            <div className="mr-2 flex items-start gap-5">
               {title}
               {workflowRunIsLoading ? (
                 <Skeleton className="h-8 w-28" />
               ) : workflowRun ? (
-                <StatusBadge status={workflowRun?.status} />
+                <StatusBadge
+                  className="mt-[0.27rem]"
+                  status={workflowRun?.status}
+                />
               ) : null}
             </div>
             <h2 className="text-2xl text-slate-400">{workflowRunId}</h2>
           </div>
 
           <div className="flex gap-2">
-            <CopyApiCommandDropdown
-              getOptions={() =>
-                ({
+            <ApiWebhookActionsMenu
+              getOptions={() => {
+                // Build headers - x-max-steps-override is optional and can be added manually if needed
+                const headers: Record<string, string> = {
+                  "Content-Type": "application/json",
+                  "x-api-key": apiCredential ?? "<your-api-key>",
+                };
+
+                const body: Record<string, unknown> = {
+                  workflow_id: workflowPermanentId,
+                  parameters: workflowRun?.parameters,
+                  proxy_location: proxyLocation,
+                };
+
+                if (maxScreenshotScrolls !== null) {
+                  body.max_screenshot_scrolls = maxScreenshotScrolls;
+                }
+
+                if (workflowRun?.webhook_callback_url) {
+                  body.webhook_url = workflowRun.webhook_callback_url;
+                }
+
+                return {
                   method: "POST",
-                  url: `${apiBaseUrl}/workflows/${workflowPermanentId}/run`,
-                  body: {
-                    data: workflowRun?.parameters,
-                    proxy_location: "RESIDENTIAL",
-                  },
-                  headers: {
-                    "Content-Type": "application/json",
-                    "x-api-key": apiCredential ?? "<your-api-key>",
-                  },
-                }) satisfies ApiCommandOptions
-              }
+                  url: `${runsApiBaseUrl}/run/workflows`,
+                  body,
+                  headers,
+                } satisfies ApiCommandOptions;
+              }}
+              webhookDisabled={workflowRunIsLoading || !workflowRunIsFinalized}
+              onTestWebhook={() => setReplayOpen(true)}
+            />
+            <WebhookReplayDialog
+              runId={workflowRunId ?? ""}
+              disabled={workflowRunIsLoading || !workflowRunIsFinalized}
+              open={replayOpen}
+              onOpenChange={setReplayOpen}
+              hideTrigger
             />
             <Button asChild variant="secondary">
-              <Link to={`/workflows/${workflowPermanentId}/edit`}>
+              <Link to={`/workflows/${workflowPermanentId}/debug`}>
                 <Pencil2Icon className="mr-2 h-4 w-4" />
                 Edit
               </Link>
             </Button>
-            {workflowRunIsRunningOrQueued && (
+            {workflowRunIsCancellable && (
               <Dialog>
                 <DialogTrigger asChild>
                   <Button variant="destructive">Cancel</Button>
@@ -308,30 +462,21 @@ function WorkflowRun() {
               </ScrollArea>
             </div>
           )}
+          {webhookFailureReason}
         </div>
       )}
       {workflowFailureReason}
       {!isEmbedded && (
-        <SwitchBarNavigation
-          options={[
-            {
-              label: "Overview",
-              to: "overview",
-            },
-            {
-              label: "Output",
-              to: "output",
-            },
-            {
-              label: "Parameters",
-              to: "parameters",
-            },
-            {
-              label: "Recording",
-              to: "recording",
-            },
-          ]}
-        />
+        <div className="flex items-center justify-between">
+          <SwitchBarNavigation options={switchBarOptions} />
+          {workflowRun && (
+            <WorkflowRunStatusAlert
+              status={workflowRun.status}
+              title={workflow?.title}
+              visible={workflowRun && !isFinalized}
+            />
+          )}
+        </div>
       )}
       <div className="flex h-[42rem] gap-6">
         <div className="w-2/3">

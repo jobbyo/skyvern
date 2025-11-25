@@ -1,4 +1,3 @@
-import { getClient } from "@/api/AxiosClient";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -8,36 +7,34 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { toast } from "@/components/ui/use-toast";
-import { useCredentialGetter } from "@/hooks/useCredentialGetter";
 import { useOnChange } from "@/hooks/useOnChange";
 import { useShouldNotifyWhenClosingTab } from "@/hooks/useShouldNotifyWhenClosingTab";
-import { DeleteNodeCallbackContext } from "@/store/DeleteNodeCallbackContext";
+import { BlockActionContext } from "@/store/BlockActionContext";
 import { useDebugStore } from "@/store/useDebugStore";
-import { useWorkflowHasChangesStore } from "@/store/WorkflowHasChangesStore";
-import { useWorkflowPanelStore } from "@/store/WorkflowPanelStore";
+import {
+  useWorkflowHasChangesStore,
+  useWorkflowSave,
+  type WorkflowSaveData,
+} from "@/store/WorkflowHasChangesStore";
+import { useWorkflowParametersStore } from "@/store/WorkflowParametersStore";
+import { useWorkflowTitleStore } from "@/store/WorkflowTitleStore";
 import { ReloadIcon } from "@radix-ui/react-icons";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Background,
   BackgroundVariant,
   Controls,
   Edge,
-  Panel,
   PanOnScrollMode,
   ReactFlow,
   Viewport,
-  useEdgesState,
   useNodesInitialized,
-  useNodesState,
   useReactFlow,
+  NodeChange,
+  EdgeChange,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { AxiosError } from "axios";
-import { nanoid } from "nanoid";
-import { useEffect, useRef, useState } from "react";
-import { useBlocker, useParams } from "react-router-dom";
-import { stringify as convertToYAML } from "yaml";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useBlocker } from "react-router-dom";
 import {
   AWSSecretParameter,
   debuggableWorkflowBlockTypes,
@@ -45,22 +42,18 @@ import {
   WorkflowEditorParameterTypes,
   WorkflowParameterTypes,
   WorkflowParameterValueType,
-  WorkflowSettings,
 } from "../types/workflowTypes";
 import {
   BitwardenCreditCardDataParameterYAML,
   BitwardenLoginCredentialParameterYAML,
   BitwardenSensitiveInformationParameterYAML,
-  BlockYAML,
   ContextParameterYAML,
   CredentialParameterYAML,
   OnePasswordCredentialParameterYAML,
+  AzureVaultCredentialParameterYAML,
   ParameterYAML,
-  WorkflowCreateYAMLRequest,
   WorkflowParameterYAML,
 } from "../types/workflowYamlTypes";
-import { WorkflowHeader } from "./WorkflowHeader";
-import { WorkflowParametersStateContext } from "./WorkflowParametersStateContext";
 import {
   BITWARDEN_CLIENT_ID_AWS_SECRET_KEY,
   BITWARDEN_CLIENT_SECRET_AWS_SECRET_KEY,
@@ -73,32 +66,28 @@ import {
   nodeTypes,
   WorkflowBlockNode,
 } from "./nodes";
-import { WorkflowNodeLibraryPanel } from "./panels/WorkflowNodeLibraryPanel";
-import { WorkflowParametersPanel } from "./panels/WorkflowParametersPanel";
 import {
   ParametersState,
   parameterIsSkyvernCredential,
   parameterIsOnePasswordCredential,
   parameterIsBitwardenCredential,
+  parameterIsAzureVaultCredential,
 } from "./types";
 import "./reactFlowOverrideStyles.css";
 import {
   convertEchoParameters,
   createNode,
-  defaultEdge,
   descendants,
-  generateNodeLabel,
   getAdditionalParametersForEmailBlock,
+  getOrderedChildrenBlocks,
   getOutputParameterKey,
   getWorkflowBlocks,
-  getWorkflowErrors,
   getWorkflowSettings,
   layout,
-  nodeAdderNode,
-  startNode,
+  upgradeWorkflowDefinitionToVersionTwo,
 } from "./workflowEditorUtils";
-import { cn } from "@/util/utils";
-import { WorkflowDebuggerRun } from "@/routes/workflows/editor/WorkflowDebuggerRun";
+import { getWorkflowErrors } from "./workflowEditorUtils";
+import { toast } from "@/components/ui/use-toast";
 import { useAutoPan } from "./useAutoPan";
 
 function convertToParametersYAML(
@@ -110,6 +99,7 @@ function convertToParametersYAML(
   | BitwardenSensitiveInformationParameterYAML
   | BitwardenCreditCardDataParameterYAML
   | OnePasswordCredentialParameterYAML
+  | AzureVaultCredentialParameterYAML
   | CredentialParameterYAML
 > {
   return parameters
@@ -123,9 +113,30 @@ function convertToParametersYAML(
         | BitwardenSensitiveInformationParameterYAML
         | BitwardenCreditCardDataParameterYAML
         | OnePasswordCredentialParameterYAML
+        | AzureVaultCredentialParameterYAML
         | CredentialParameterYAML
         | undefined => {
         if (parameter.parameterType === WorkflowEditorParameterTypes.Workflow) {
+          // Convert boolean default values to strings for backend
+          let defaultValue = parameter.defaultValue;
+          if (
+            parameter.dataType === "boolean" &&
+            typeof parameter.defaultValue === "boolean"
+          ) {
+            defaultValue = String(parameter.defaultValue);
+          }
+          if (
+            (parameter.dataType === "integer" ||
+              parameter.dataType === "float") &&
+            (typeof parameter.defaultValue === "number" ||
+              typeof parameter.defaultValue === "string")
+          ) {
+            defaultValue =
+              parameter.defaultValue === null
+                ? parameter.defaultValue
+                : String(parameter.defaultValue);
+          }
+
           return {
             parameter_type: WorkflowParameterTypes.Workflow,
             key: parameter.key,
@@ -133,7 +144,7 @@ function convertToParametersYAML(
             workflow_parameter_type: parameter.dataType,
             ...(parameter.defaultValue === null
               ? {}
-              : { default_value: parameter.defaultValue }),
+              : { default_value: defaultValue }),
           };
         } else if (
           parameter.parameterType === WorkflowEditorParameterTypes.Context
@@ -211,6 +222,16 @@ function convertToParametersYAML(
               vault_id: parameter.vaultId,
               item_id: parameter.itemId,
             };
+          } else if (parameterIsAzureVaultCredential(parameter)) {
+            return {
+              parameter_type: WorkflowParameterTypes.Azure_Vault_Credential,
+              key: parameter.key,
+              description: parameter.description || null,
+              vault_name: parameter.vaultName,
+              username_key: parameter.usernameKey,
+              password_key: parameter.passwordKey,
+              totp_secret_key: parameter.totpSecretKey,
+            };
           }
         }
         return undefined;
@@ -225,6 +246,7 @@ function convertToParametersYAML(
           | BitwardenSensitiveInformationParameterYAML
           | BitwardenCreditCardDataParameterYAML
           | OnePasswordCredentialParameterYAML
+          | AzureVaultCredentialParameterYAML
           | CredentialParameterYAML
           | undefined,
       ): param is
@@ -234,153 +256,75 @@ function convertToParametersYAML(
         | BitwardenSensitiveInformationParameterYAML
         | BitwardenCreditCardDataParameterYAML
         | OnePasswordCredentialParameterYAML
+        | AzureVaultCredentialParameterYAML
         | CredentialParameterYAML => param !== undefined,
     );
 }
 
 type Props = {
+  hideBackground?: boolean;
+  hideControls?: boolean;
+  nodes: Array<AppNode>;
+  edges: Array<Edge>;
+  setNodes: (nodes: Array<AppNode>) => void;
+  setEdges: (edges: Array<Edge>) => void;
+  onNodesChange: (changes: Array<NodeChange<AppNode>>) => void;
+  onEdgesChange: (changes: Array<EdgeChange>) => void;
   initialTitle: string;
-  initialNodes: Array<AppNode>;
-  initialEdges: Array<Edge>;
-  initialParameters: ParametersState;
+  // initialParameters: ParametersState;
   workflow: WorkflowApiResponse;
-};
-
-export type AddNodeProps = {
-  nodeType: NonNullable<WorkflowBlockNode["type"]>;
-  previous: string | null;
-  next: string | null;
-  parent?: string;
-  connectingEdgeType: string;
+  onDebuggableBlockCountChange?: (count: number) => void;
+  onMouseDownCapture?: () => void;
+  zIndex?: number;
+  onContainerResize?: number;
 };
 
 function FlowRenderer({
+  hideBackground = false,
+  hideControls = false,
+  nodes,
+  edges,
+  setNodes,
+  setEdges,
+  onNodesChange,
+  onEdgesChange,
   initialTitle,
-  initialEdges,
-  initialNodes,
-  initialParameters,
+  // initialParameters,
   workflow,
+  onDebuggableBlockCountChange,
+  onMouseDownCapture,
+  zIndex,
+  onContainerResize,
 }: Props) {
   const reactFlowInstance = useReactFlow();
   const debugStore = useDebugStore();
-  const { workflowPermanentId } = useParams();
-  const credentialGetter = useCredentialGetter();
-  const queryClient = useQueryClient();
-  const { workflowPanelState, setWorkflowPanelState, closeWorkflowPanel } =
-    useWorkflowPanelStore();
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
-  const [parameters, setParameters] =
-    useState<ParametersState>(initialParameters);
-  const [title, setTitle] = useState(initialTitle);
-  const [debuggableBlockCount, setDebuggableBlockCount] = useState(0);
+  const { title, initializeTitle } = useWorkflowTitleStore();
+  // const [parameters] = useState<ParametersState>(initialParameters);
+  const parameters = useWorkflowParametersStore((state) => state.parameters);
   const nodesInitialized = useNodesInitialized();
   const [shouldConstrainPan, setShouldConstrainPan] = useState(false);
+  const flowIsConstrained = debugStore.isDebugMode;
 
   useEffect(() => {
     if (nodesInitialized) {
       setShouldConstrainPan(true);
     }
   }, [nodesInitialized]);
-  const { hasChanges, setHasChanges } = useWorkflowHasChangesStore();
-  useShouldNotifyWhenClosingTab(hasChanges);
+
+  useEffect(() => {
+    initializeTitle(initialTitle);
+  }, [initialTitle, initializeTitle]);
+
+  const workflowChangesStore = useWorkflowHasChangesStore();
+  const setGetSaveDataRef = useRef(workflowChangesStore.setGetSaveData);
+  setGetSaveDataRef.current = workflowChangesStore.setGetSaveData;
+  const saveWorkflow = useWorkflowSave({ status: "published" });
+  useShouldNotifyWhenClosingTab(workflowChangesStore.hasChanges);
   const blocker = useBlocker(({ currentLocation, nextLocation }) => {
-    return hasChanges && nextLocation.pathname !== currentLocation.pathname;
-  });
-
-  const saveWorkflowMutation = useMutation({
-    mutationFn: async (data: {
-      parameters: Array<ParameterYAML>;
-      blocks: Array<BlockYAML>;
-      title: string;
-      settings: WorkflowSettings;
-    }) => {
-      if (!workflowPermanentId) {
-        return;
-      }
-      const client = await getClient(credentialGetter);
-      const extraHttpHeaders: Record<string, string> = {};
-      if (data.settings.extraHttpHeaders) {
-        try {
-          const parsedHeaders = JSON.parse(data.settings.extraHttpHeaders);
-          if (
-            parsedHeaders &&
-            typeof parsedHeaders === "object" &&
-            !Array.isArray(parsedHeaders)
-          ) {
-            for (const [key, value] of Object.entries(parsedHeaders)) {
-              if (key && typeof key === "string") {
-                if (key in extraHttpHeaders) {
-                  toast({
-                    title: "Error",
-                    description: `Duplicate key '${key}' in extra http headers`,
-                    variant: "destructive",
-                  });
-                  continue;
-                }
-                extraHttpHeaders[key] = String(value);
-              }
-            }
-          }
-        } catch (error) {
-          toast({
-            title: "Error",
-            description: "Invalid JSON format in extra http headers",
-            variant: "destructive",
-          });
-          return;
-        }
-      }
-
-      const requestBody: WorkflowCreateYAMLRequest = {
-        title: data.title,
-        description: workflow.description,
-        proxy_location: data.settings.proxyLocation,
-        webhook_callback_url: data.settings.webhookCallbackUrl,
-        persist_browser_session: data.settings.persistBrowserSession,
-        model: data.settings.model,
-        max_screenshot_scrolls: data.settings.maxScreenshotScrolls,
-        totp_verification_url: workflow.totp_verification_url,
-        extra_http_headers: extraHttpHeaders,
-        workflow_definition: {
-          parameters: data.parameters,
-          blocks: data.blocks,
-        },
-        is_saved_task: workflow.is_saved_task,
-      };
-      const yaml = convertToYAML(requestBody);
-      return client.put<string, WorkflowApiResponse>(
-        `/workflows/${workflowPermanentId}`,
-        yaml,
-        {
-          headers: {
-            "Content-Type": "text/plain",
-          },
-        },
-      );
-    },
-    onSuccess: () => {
-      toast({
-        title: "Changes saved",
-        description: "Your changes have been saved",
-        variant: "success",
-      });
-      queryClient.invalidateQueries({
-        queryKey: ["workflow", workflowPermanentId],
-      });
-      queryClient.invalidateQueries({
-        queryKey: ["workflows"],
-      });
-      setHasChanges(false);
-    },
-    onError: (error: AxiosError) => {
-      const detail = (error.response?.data as { detail?: string })?.detail;
-      toast({
-        title: "Error",
-        description: detail ? detail : error.message,
-        variant: "destructive",
-      });
-    },
+    return (
+      workflowChangesStore.hasChanges &&
+      nextLocation.pathname !== currentLocation.pathname
+    );
   });
 
   function doLayout(nodes: Array<AppNode>, edges: Array<Edge>) {
@@ -397,15 +341,31 @@ function FlowRenderer({
   }, [nodesInitialized]);
 
   useEffect(() => {
-    const blocks = getWorkflowBlocks(nodes, edges);
-    const debuggable = blocks.filter((block) =>
+    const topLevelBlocks = getWorkflowBlocks(nodes, edges);
+    const debuggable = topLevelBlocks.filter((block) =>
       debuggableWorkflowBlockTypes.has(block.block_type),
     );
-    setDebuggableBlockCount(debuggable.length);
-  }, [nodes, edges]);
 
-  async function handleSave() {
+    for (const node of nodes) {
+      const childBlocks = getOrderedChildrenBlocks(nodes, edges, node.id);
+
+      for (const child of childBlocks) {
+        if (debuggableWorkflowBlockTypes.has(child.block_type)) {
+          debuggable.push(child);
+        }
+      }
+    }
+
+    onDebuggableBlockCountChange?.(debuggable.length);
+  }, [nodes, edges, onDebuggableBlockCountChange]);
+
+  const constructSaveData = useCallback((): WorkflowSaveData => {
     const blocks = getWorkflowBlocks(nodes, edges);
+    const { blocks: upgradedBlocks, version: workflowDefinitionVersion } =
+      upgradeWorkflowDefinitionToVersionTwo(
+        blocks,
+        workflow.workflow_definition.version,
+      );
     const settings = getWorkflowSettings(nodes);
     const parametersInYAMLConvertibleJSON = convertToParametersYAML(parameters);
     const filteredParameters = workflow.workflow_definition.parameters.filter(
@@ -423,102 +383,47 @@ function FlowRenderer({
 
     // if there is an email node, we need to add the email aws secret parameters
     const emailAwsSecretParameters = getAdditionalParametersForEmailBlock(
-      blocks,
+      upgradedBlocks,
       overallParameters,
     );
 
-    return saveWorkflowMutation.mutateAsync({
+    return {
       parameters: [
         ...echoParameters,
         ...parametersInYAMLConvertibleJSON,
         ...emailAwsSecretParameters,
       ],
-      blocks,
+      blocks: upgradedBlocks,
+      workflowDefinitionVersion,
       title,
       settings,
-    });
-  }
+      workflow,
+    };
+  }, [nodes, edges, parameters, title, workflow]);
 
-  function addNode({
-    nodeType,
-    previous,
-    next,
-    parent,
-    connectingEdgeType,
-  }: AddNodeProps) {
-    const newNodes: Array<AppNode> = [];
-    const newEdges: Array<Edge> = [];
-    const id = nanoid();
-    const existingLabels = nodes
-      .filter(isWorkflowBlockNode)
-      .map((node) => node.data.label);
-    const node = createNode(
-      { id, parentId: parent },
-      nodeType,
-      generateNodeLabel(existingLabels),
-    );
-    newNodes.push(node);
-    if (previous) {
-      const newEdge = {
-        id: nanoid(),
-        type: "edgeWithAddButton",
-        source: previous,
-        target: id,
-        style: {
-          strokeWidth: 2,
-        },
-      };
-      newEdges.push(newEdge);
-    }
-    if (next) {
-      const newEdge = {
-        id: nanoid(),
-        type: connectingEdgeType,
-        source: id,
-        target: next,
-        style: {
-          strokeWidth: 2,
-        },
-      };
-      newEdges.push(newEdge);
-    }
+  useEffect(() => {
+    setGetSaveDataRef.current(constructSaveData);
+  }, [constructSaveData]);
 
-    if (nodeType === "loop") {
-      // when loop node is first created it needs an adder node so nodes can be added inside the loop
-      const startNodeId = nanoid();
-      const adderNodeId = nanoid();
-      newNodes.push(
-        startNode(
-          startNodeId,
-          {
-            withWorkflowSettings: false,
-            editable: true,
-          },
-          id,
+  async function handleSave(): Promise<boolean> {
+    // Validate before saving; block if any workflow errors exist
+    const errors = getWorkflowErrors(nodes);
+    if (errors.length > 0) {
+      toast({
+        title: "Can not save workflow because of errors:",
+        description: (
+          <div className="space-y-2">
+            {errors.map((error) => (
+              <p key={error}>{error}</p>
+            ))}
+          </div>
         ),
-      );
-      newNodes.push(nodeAdderNode(adderNodeId, id));
-      newEdges.push(defaultEdge(startNodeId, adderNodeId));
+        variant: "destructive",
+      });
+      return false;
     }
-
-    const editedEdges = previous
-      ? edges.filter((edge) => edge.source !== previous)
-      : edges;
-
-    const previousNode = nodes.find((node) => node.id === previous);
-    const previousNodeIndex = previousNode
-      ? nodes.indexOf(previousNode)
-      : nodes.length - 1;
-
-    // creating some memory for no reason, maybe check it out later
-    const newNodesAfter = [
-      ...nodes.slice(0, previousNodeIndex + 1),
-      ...newNodes,
-      ...nodes.slice(previousNodeIndex + 1),
-    ];
-
-    setHasChanges(true);
-    doLayout(newNodesAfter, [...editedEdges, ...newEdges]);
+    await saveWorkflow.mutateAsync();
+    return true;
   }
 
   function deleteNode(id: string) {
@@ -607,27 +512,103 @@ function FlowRenderer({
       }
       return node;
     });
-    setHasChanges(true);
+    workflowChangesStore.setHasChanges(true);
+
     doLayout(newNodesWithUpdatedParameters, newEdges);
+  }
+
+  function transmuteNode(id: string, nodeType: string) {
+    const nodeToTransmute = nodes.find((node) => node.id === id);
+
+    if (!nodeToTransmute || !isWorkflowBlockNode(nodeToTransmute)) {
+      return;
+    }
+
+    const newNode = createNode(
+      { id: nodeToTransmute.id, parentId: nodeToTransmute.parentId },
+      nodeType as NonNullable<WorkflowBlockNode["type"]>,
+      nodeToTransmute.data.label,
+    );
+
+    const newNodes = nodes.map((node) => {
+      if (node.id === id) {
+        return newNode;
+      }
+      return node;
+    });
+
+    workflowChangesStore.setHasChanges(true);
+    doLayout(newNodes, edges);
+  }
+
+  function toggleScript({
+    id,
+    label,
+    show,
+  }: {
+    id?: string;
+    label?: string;
+    show: boolean;
+  }) {
+    if (id) {
+      const node = nodes.find((node) => node.id === id);
+      if (!node) {
+        return;
+      }
+
+      node.data.showCode = show;
+    } else if (label) {
+      const node = nodes.find(
+        (node) => "label" in node.data && node.data.label === label,
+      );
+
+      if (!node) {
+        return;
+      }
+
+      node.data.showCode = show;
+    }
+
+    doLayout(nodes, edges);
   }
 
   const editorElementRef = useRef<HTMLDivElement>(null);
 
   useAutoPan(editorElementRef, nodes);
 
+  useEffect(() => {
+    doLayout(nodes, edges);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onContainerResize]);
+
   const zoomLock = 1 as const;
   const yLockMax = 140 as const;
 
   /**
    * TODO(jdo): hack
+   *
+   * Locks the x position of the flow to an ideal x based on the ideal width
+   * of the flow. The ideal width is based on differently-width'd blocks.
    */
   const getXLock = () => {
-    const hasForLoopNode = nodes.some((node) => node.type === "loop");
-    return hasForLoopNode ? 24 : 104;
+    const rect = editorElementRef.current?.getBoundingClientRect();
+
+    if (!rect) {
+      return 24;
+    }
+
+    const width = rect.width;
+    const hasLoopBlock = nodes.some((node) => node.type === "loop");
+    const hasHttpBlock = nodes.some((node) => node.type === "http_request");
+    const idealWidth = hasHttpBlock ? 580 : hasLoopBlock ? 498 : 475;
+    const split = (width - idealWidth) / 2;
+
+    return Math.max(24, split);
   };
 
   useOnChange(debugStore.isDebugMode, (newValue) => {
     const xLock = getXLock();
+
     if (newValue) {
       const currentY = reactFlowInstance.getViewport().y;
       reactFlowInstance.setViewport({ x: xLock, y: currentY, zoom: zoomLock });
@@ -665,7 +646,11 @@ function FlowRenderer({
   };
 
   return (
-    <>
+    <div
+      className="h-full w-full"
+      style={{ zIndex }}
+      onMouseDownCapture={() => onMouseDownCapture?.()}
+    >
       <Dialog
         open={blocker.state === "blocked"}
         onOpenChange={(open) => {
@@ -693,13 +678,15 @@ function FlowRenderer({
             </Button>
             <Button
               onClick={() => {
-                handleSave().then(() => {
-                  blocker.proceed?.();
+                handleSave().then((ok) => {
+                  if (ok) {
+                    blocker.proceed?.();
+                  }
                 });
               }}
-              disabled={saveWorkflowMutation.isPending}
+              disabled={workflowChangesStore.saveIsPending}
             >
-              {saveWorkflowMutation.isPending && (
+              {workflowChangesStore.saveIsPending && (
                 <ReloadIcon className="mr-2 h-4 w-4 animate-spin" />
               )}
               Save changes
@@ -707,152 +694,105 @@ function FlowRenderer({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <WorkflowParametersStateContext.Provider
-        value={[parameters, setParameters]}
+      <BlockActionContext.Provider
+        value={{
+          /**
+           * NOTE: defer deletion to next tick to allow React Flow's internal
+           * event handlers to complete; removes a console warning from the
+           * React Flow library
+           */
+          deleteNodeCallback: (id: string) =>
+            setTimeout(() => deleteNode(id), 0),
+          transmuteNodeCallback: (id: string, nodeName: string) =>
+            setTimeout(() => transmuteNode(id, nodeName), 0),
+          toggleScriptForNodeCallback: toggleScript,
+        }}
       >
-        <DeleteNodeCallbackContext.Provider value={deleteNode}>
-          <ReactFlow
-            ref={editorElementRef}
-            nodes={nodes}
-            edges={edges}
-            onNodesChange={(changes) => {
-              const dimensionChanges = changes.filter(
-                (change) => change.type === "dimensions",
-              );
-              const tempNodes = [...nodes];
-              dimensionChanges.forEach((change) => {
-                const node = tempNodes.find((node) => node.id === change.id);
-                if (node) {
-                  if (node.measured?.width) {
-                    node.measured.width = change.dimensions?.width;
-                  }
-                  if (node.measured?.height) {
-                    node.measured.height = change.dimensions?.height;
-                  }
+        <ReactFlow
+          ref={editorElementRef}
+          nodes={nodes}
+          edges={edges}
+          onNodesChange={(changes) => {
+            const dimensionChanges = changes.filter(
+              (change) => change.type === "dimensions",
+            );
+            const tempNodes = [...nodes];
+            dimensionChanges.forEach((change) => {
+              const node = tempNodes.find((node) => node.id === change.id);
+              if (node) {
+                if (node.measured?.width) {
+                  node.measured.width = change.dimensions?.width;
                 }
-              });
-              if (dimensionChanges.length > 0) {
-                doLayout(tempNodes, edges);
+                if (node.measured?.height) {
+                  node.measured.height = change.dimensions?.height;
+                }
               }
-              if (
-                changes.some((change) => {
-                  return (
-                    change.type === "add" ||
-                    change.type === "remove" ||
-                    change.type === "replace"
-                  );
-                })
-              ) {
-                setHasChanges(true);
-              }
-              onNodesChange(changes);
-            }}
-            onEdgesChange={onEdgesChange}
-            nodeTypes={nodeTypes}
-            edgeTypes={edgeTypes}
-            colorMode="dark"
-            fitView={true}
-            fitViewOptions={{
-              maxZoom: 1,
-            }}
-            deleteKeyCode={null}
-            onMove={(_, viewport) => {
-              if (debugStore.isDebugMode && shouldConstrainPan) {
-                constrainPan(viewport);
-              }
-            }}
-            maxZoom={debugStore.isDebugMode ? 1 : 2}
-            minZoom={debugStore.isDebugMode ? 1 : 0.5}
-            panOnDrag={!debugStore.isDebugMode}
-            panOnScroll={debugStore.isDebugMode}
-            panOnScrollMode={
-              debugStore.isDebugMode
-                ? PanOnScrollMode.Vertical
-                : PanOnScrollMode.Free
+            });
+
+            if (dimensionChanges.length > 0) {
+              doLayout(tempNodes, edges);
             }
-            zoomOnDoubleClick={!debugStore.isDebugMode}
-            zoomOnPinch={!debugStore.isDebugMode}
-            zoomOnScroll={!debugStore.isDebugMode}
-          >
+            if (
+              changes.some((change) => {
+                return (
+                  change.type === "add" ||
+                  change.type === "remove" ||
+                  change.type === "replace"
+                );
+              })
+            ) {
+              workflowChangesStore.setHasChanges(true);
+            }
+
+            onNodesChange(changes);
+
+            // NOTE: should no longer be needed (woot!) - delete if true (want real-world testing first)
+            // // only allow one update in _this_ render cycle
+            // if (onNodesChangeTimeoutRef.current === null) {
+            //   onNodesChange(changes);
+            //   onNodesChangeTimeoutRef.current = setTimeout(() => {
+            //     onNodesChangeTimeoutRef.current = null;
+            //   }, 0);
+            // } else {
+            //   // if we have an update in this render cycle already, then to
+            //   // prevent max recursion errors, defer the update to next render
+            //   // cycle
+            //   nextTick().then(() => {
+            //     onNodesChange(changes);
+            //   });
+            // }
+          }}
+          onEdgesChange={onEdgesChange}
+          nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
+          // colorMode="dark"
+          fitView={true}
+          fitViewOptions={{
+            maxZoom: 1,
+          }}
+          deleteKeyCode={null}
+          onMove={(_, viewport) => {
+            if (flowIsConstrained && shouldConstrainPan) {
+              constrainPan(viewport);
+            }
+          }}
+          maxZoom={flowIsConstrained ? 1 : 2}
+          minZoom={flowIsConstrained ? 1 : 0.5}
+          panOnDrag={true}
+          panOnScroll={true}
+          panOnScrollMode={PanOnScrollMode.Vertical}
+          zoomOnDoubleClick={!flowIsConstrained}
+          zoomOnPinch={!flowIsConstrained}
+          zoomOnScroll={!flowIsConstrained}
+        >
+          {!hideBackground && (
             <Background variant={BackgroundVariant.Dots} bgColor="#020617" />
-            <Controls position="bottom-left" />
-            {debugStore.isDebugMode && (
-              <Panel
-                position="top-right"
-                className="!bottom-[1rem] !right-[1.5rem] !top-0"
-              >
-                <div className="pointer-events-none absolute right-0 top-0 flex h-full w-[400px] flex-col items-end justify-end">
-                  <div className="pointer-events-auto relative mt-[8.5rem] h-full w-full overflow-hidden rounded-xl border-2 border-slate-500">
-                    <WorkflowDebuggerRun />
-                  </div>
-                </div>
-              </Panel>
-            )}
-            <Panel position="top-center" className={cn("h-20")}>
-              <WorkflowHeader
-                debuggableBlockCount={debuggableBlockCount}
-                title={title}
-                saving={saveWorkflowMutation.isPending}
-                onTitleChange={(newTitle) => {
-                  setTitle(newTitle);
-                  setHasChanges(true);
-                }}
-                parametersPanelOpen={
-                  workflowPanelState.active &&
-                  workflowPanelState.content === "parameters"
-                }
-                onParametersClick={() => {
-                  if (
-                    workflowPanelState.active &&
-                    workflowPanelState.content === "parameters"
-                  ) {
-                    closeWorkflowPanel();
-                  } else {
-                    setWorkflowPanelState({
-                      active: true,
-                      content: "parameters",
-                    });
-                  }
-                }}
-                onSave={async () => {
-                  const errors = getWorkflowErrors(nodes);
-                  if (errors.length > 0) {
-                    toast({
-                      title: "Can not save workflow because of errors:",
-                      description: (
-                        <div className="space-y-2">
-                          {errors.map((error) => (
-                            <p key={error}>{error}</p>
-                          ))}
-                        </div>
-                      ),
-                      variant: "destructive",
-                    });
-                    return;
-                  }
-                  await handleSave();
-                }}
-              />
-            </Panel>
-            {workflowPanelState.active && (
-              <Panel position="top-right">
-                {workflowPanelState.content === "parameters" && (
-                  <WorkflowParametersPanel />
-                )}
-                {workflowPanelState.content === "nodeLibrary" && (
-                  <WorkflowNodeLibraryPanel
-                    onNodeClick={(props) => {
-                      addNode(props);
-                    }}
-                  />
-                )}
-              </Panel>
-            )}
-          </ReactFlow>
-        </DeleteNodeCallbackContext.Provider>
-      </WorkflowParametersStateContext.Provider>
-    </>
+          )}
+          {!hideControls && <Controls position="bottom-left" />}
+        </ReactFlow>
+      </BlockActionContext.Provider>
+    </div>
   );
 }
 
-export { FlowRenderer };
+export { FlowRenderer, type Props as FlowRendererProps };

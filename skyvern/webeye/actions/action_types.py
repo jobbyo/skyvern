@@ -17,13 +17,14 @@ class ActionType(StrEnum):
     TERMINATE = "terminate"
     COMPLETE = "complete"
     RELOAD_PAGE = "reload_page"
+    CLOSE_PAGE = "close_page"
 
     EXTRACT = "extract"
     VERIFICATION_CODE = "verification_code"
 
+    GOTO_URL = "goto_url"
     SCROLL = "scroll"
     KEYPRESS = "keypress"
-    TYPE = "type"
     MOVE = "move"
     DRAG = "drag"
     LEFT_MOUSE = "left_mouse"
@@ -37,3 +38,15 @@ class ActionType(StrEnum):
             ActionType.SELECT_OPTION,
             ActionType.CHECKBOX,
         ]
+
+
+POST_ACTION_EXECUTION_ACTION_TYPES = [
+    ActionType.CLICK,
+    ActionType.INPUT_TEXT,
+    ActionType.UPLOAD_FILE,
+    ActionType.DOWNLOAD_FILE,
+    ActionType.SELECT_OPTION,
+    ActionType.WAIT,
+    ActionType.SOLVE_CAPTCHA,
+    ActionType.EXTRACT,
+]

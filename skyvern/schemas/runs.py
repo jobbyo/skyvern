@@ -5,7 +5,7 @@ from enum import StrEnum
 from typing import Annotated, Any, Literal, Union
 from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from skyvern.forge.sdk.schemas.files import FileInfo
 from skyvern.schemas.docs.doc_examples import (
@@ -51,6 +51,12 @@ class ProxyLocation(StrEnum):
     RESIDENTIAL_ZA = "RESIDENTIAL_ZA"
     RESIDENTIAL_AR = "RESIDENTIAL_AR"
     RESIDENTIAL_AU = "RESIDENTIAL_AU"
+    RESIDENTIAL_BR = "RESIDENTIAL_BR"
+    RESIDENTIAL_TR = "RESIDENTIAL_TR"
+    RESIDENTIAL_CA = "RESIDENTIAL_CA"
+    RESIDENTIAL_MX = "RESIDENTIAL_MX"
+    RESIDENTIAL_IT = "RESIDENTIAL_IT"
+    RESIDENTIAL_NL = "RESIDENTIAL_NL"
     RESIDENTIAL_ISP = "RESIDENTIAL_ISP"
     NONE = "NONE"
 
@@ -83,6 +89,12 @@ class ProxyLocation(StrEnum):
             cls.RESIDENTIAL_ZA,
             cls.RESIDENTIAL_AR,
             cls.RESIDENTIAL_AU,
+            cls.RESIDENTIAL_BR,
+            cls.RESIDENTIAL_TR,
+            cls.RESIDENTIAL_CA,
+            cls.RESIDENTIAL_MX,
+            cls.RESIDENTIAL_IT,
+            cls.RESIDENTIAL_NL,
         }
 
     @staticmethod
@@ -100,6 +112,12 @@ class ProxyLocation(StrEnum):
             ProxyLocation.RESIDENTIAL_ZA: 2000,
             ProxyLocation.RESIDENTIAL_AR: 2000,
             ProxyLocation.RESIDENTIAL_AU: 2000,
+            ProxyLocation.RESIDENTIAL_BR: 2000,
+            ProxyLocation.RESIDENTIAL_TR: 2000,
+            ProxyLocation.RESIDENTIAL_CA: 2000,
+            ProxyLocation.RESIDENTIAL_MX: 2000,
+            ProxyLocation.RESIDENTIAL_IT: 2000,
+            ProxyLocation.RESIDENTIAL_NL: 2000,
         }
         return counts.get(proxy_location, 10000)
 
@@ -118,6 +136,12 @@ class ProxyLocation(StrEnum):
             ProxyLocation.RESIDENTIAL_ZA: "ZA",
             ProxyLocation.RESIDENTIAL_AR: "AR",
             ProxyLocation.RESIDENTIAL_AU: "AU",
+            ProxyLocation.RESIDENTIAL_BR: "BR",
+            ProxyLocation.RESIDENTIAL_TR: "TR",
+            ProxyLocation.RESIDENTIAL_CA: "CA",
+            ProxyLocation.RESIDENTIAL_MX: "MX",
+            ProxyLocation.RESIDENTIAL_IT: "IT",
+            ProxyLocation.RESIDENTIAL_NL: "NL",
         }
         return mapping.get(proxy_location, "US")
 
@@ -176,6 +200,24 @@ def get_tzinfo_from_proxy(proxy_location: ProxyLocation) -> ZoneInfo | None:
 
     if proxy_location == ProxyLocation.RESIDENTIAL_AU:
         return ZoneInfo("Australia/Sydney")
+
+    if proxy_location == ProxyLocation.RESIDENTIAL_BR:
+        return ZoneInfo("America/Sao_Paulo")
+
+    if proxy_location == ProxyLocation.RESIDENTIAL_TR:
+        return ZoneInfo("Europe/Istanbul")
+
+    if proxy_location == ProxyLocation.RESIDENTIAL_CA:
+        return ZoneInfo("America/Toronto")
+
+    if proxy_location == ProxyLocation.RESIDENTIAL_MX:
+        return ZoneInfo("America/Mexico_City")
+
+    if proxy_location == ProxyLocation.RESIDENTIAL_IT:
+        return ZoneInfo("Europe/Rome")
+
+    if proxy_location == ProxyLocation.RESIDENTIAL_NL:
+        return ZoneInfo("Europe/Amsterdam")
 
     if proxy_location == ProxyLocation.RESIDENTIAL_ISP:
         return ZoneInfo("America/New_York")
@@ -293,6 +335,11 @@ class TaskRunRequest(BaseModel):
         default=None,
         description="The maximum number of scrolls for the post action screenshot. When it's None or 0, it takes the current viewpoint screenshot.",
     )
+    browser_address: str | None = Field(
+        default=None,
+        description="The CDP address for the task.",
+        examples=["http://127.0.0.1:9222", "ws://127.0.0.1:9222/devtools/browser/1234567890"],
+    )
 
     @field_validator("url", "webhook_url", "totp_url")
     @classmethod
@@ -306,8 +353,8 @@ class TaskRunRequest(BaseModel):
         Returns:
             The validated URL or None if no URL was provided
         """
-        if url is None:
-            return None
+        if not url:
+            return url
 
         return validate_url(url)
 
@@ -324,7 +371,7 @@ class WorkflowRunRequest(BaseModel):
     )
     webhook_url: str | None = Field(
         default=None,
-        description="URL to send workflow status updates to after a run is finished. Refer to https://docs.skyvern.com/running-tasks/webhooks-faq for webhook questions.",
+        description="URL to send workflow status updates to after a run is finished. Refer to https://www.skyvern.com/docs/running-tasks/webhooks-faq for webhook questions.",
     )
     totp_url: str | None = Field(
         default=None,
@@ -340,6 +387,10 @@ class WorkflowRunRequest(BaseModel):
         default=None,
         description="ID of a Skyvern browser session to reuse, having it continue from the current screen state",
     )
+    browser_profile_id: str | None = Field(
+        default=None,
+        description="ID of a browser profile to reuse for this workflow run",
+    )
     max_screenshot_scrolls: int | None = Field(
         default=None,
         description="The maximum number of scrolls for the post action screenshot. When it's None or 0, it takes the current viewpoint screenshot.",
@@ -348,13 +399,32 @@ class WorkflowRunRequest(BaseModel):
         default=None,
         description="The extra HTTP headers for the requests in browser.",
     )
+    browser_address: str | None = Field(
+        default=None,
+        description="The CDP address for the workflow run.",
+        examples=["http://127.0.0.1:9222", "ws://127.0.0.1:9222/devtools/browser/1234567890"],
+    )
+    ai_fallback: bool | None = Field(
+        default=None,
+        description="Whether to fallback to AI if the workflow run fails.",
+    )
+    run_with: str | None = Field(
+        default=None,
+        description="Whether to run the workflow with agent or code.",
+    )
 
     @field_validator("webhook_url", "totp_url")
     @classmethod
     def validate_urls(cls, url: str | None) -> str | None:
-        if url is None:
-            return None
+        if not url:
+            return url
         return validate_url(url)
+
+    @model_validator(mode="after")
+    def validate_browser_reference(cls, values: WorkflowRunRequest) -> WorkflowRunRequest:
+        if values.browser_session_id and values.browser_profile_id:
+            raise ValueError("Cannot specify both browser_session_id and browser_profile_id")
+        return values
 
 
 class BlockRunRequest(WorkflowRunRequest):
@@ -362,6 +432,24 @@ class BlockRunRequest(WorkflowRunRequest):
         description="Labels of the blocks to execute",
         examples=["block_1", "block_2"],
     )
+    block_outputs: dict[str, Any] | None = Field(
+        default=None,
+        # NOTE(jdo): this is either the last output of the block for a given
+        # org_id/user_id, or an override supplied by the user
+        description="Any active outputs of blocks in a workflow being debugged",
+    )
+    code_gen: bool | None = Field(
+        default=False,
+        description="Whether to generate colde for blocks that support it",
+    )
+    debug_session_id: str | None = Field(
+        default=None,
+        description="ID of the debug session to use for this block run",
+    )
+
+
+class ScriptRunResponse(BaseModel):
+    ai_fallback_triggered: bool = False
 
 
 class BaseRunResponse(BaseModel):
@@ -399,9 +487,22 @@ class BaseRunResponse(BaseModel):
     browser_session_id: str | None = Field(
         default=None, description="ID of the Skyvern persistent browser session used for this run", examples=["pbs_123"]
     )
+    browser_profile_id: str | None = Field(
+        default=None,
+        description="ID of the browser profile used for this run",
+        examples=["bp_123"],
+    )
     max_screenshot_scrolls: int | None = Field(
         default=None,
         description="The maximum number of scrolls for the post action screenshot. When it's None or 0, it takes the current viewpoint screenshot",
+    )
+    script_run: ScriptRunResponse | None = Field(
+        default=None,
+        description="The script run result",
+    )
+    errors: list[dict[str, Any]] | None = Field(
+        default=None,
+        description="The errors for the run",
     )
 
 
@@ -416,6 +517,15 @@ class TaskRunResponse(BaseRunResponse):
 
 class WorkflowRunResponse(BaseRunResponse):
     run_type: Literal[RunType.workflow_run] = Field(description="Type of run - always workflow_run for workflow runs")
+    run_with: str | None = Field(
+        default=None,
+        description="Whether the workflow run was executed with agent or code",
+        examples=["agent", "code"],
+    )
+    ai_fallback: bool | None = Field(
+        default=None,
+        description="Whether to fallback to AI if code run fails.",
+    )
     run_request: WorkflowRunRequest | None = Field(
         default=None, description="The original request parameters used to start this workflow run"
     )

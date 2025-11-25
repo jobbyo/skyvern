@@ -11,6 +11,7 @@ from rich.panel import Panel
 
 from skyvern.client import Skyvern
 from skyvern.config import settings
+from skyvern.utils.env_paths import resolve_backend_env_path
 
 from .console import console
 from .tasks import _list_workflow_tasks
@@ -34,8 +35,7 @@ def workflow_callback(
 
 def _get_client(api_key: str | None = None) -> Skyvern:
     """Instantiate a Skyvern SDK client using environment variables."""
-    load_dotenv()
-    load_dotenv(".env")
+    load_dotenv(resolve_backend_env_path())
     key = api_key or os.getenv("SKYVERN_API_KEY") or settings.SKYVERN_API_KEY
     return Skyvern(base_url=settings.SKYVERN_BASE_URL, api_key=key)
 
@@ -56,7 +56,7 @@ def run_workflow(
         raise typer.Exit(code=1)
 
     client = _get_client(ctx.obj.get("api_key") if ctx.obj else None)
-    run_resp = client.agent.run_workflow(
+    run_resp = client.run_workflow(
         workflow_id=workflow_id,
         parameters=params_dict,
         title=title,
@@ -77,7 +77,7 @@ def cancel_workflow(
 ) -> None:
     """Cancel a running workflow."""
     client = _get_client(ctx.obj.get("api_key") if ctx.obj else None)
-    client.agent.cancel_run(run_id=run_id)
+    client.cancel_run(run_id=run_id)
     console.print(Panel(f"Cancel signal sent for run {run_id}", border_style="red"))
 
 
@@ -89,7 +89,7 @@ def workflow_status(
 ) -> None:
     """Retrieve status information for a workflow run."""
     client = _get_client(ctx.obj.get("api_key") if ctx.obj else None)
-    run = client.agent.get_run(run_id=run_id)
+    run = client.get_run(run_id=run_id)
     console.print(Panel(run.model_dump_json(indent=2), border_style="cyan"))
     if tasks:
         task_list = _list_workflow_tasks(client, run_id)
@@ -105,7 +105,7 @@ def list_workflows(
 ) -> None:
     """List workflows for the organization."""
     client = _get_client(ctx.obj.get("api_key") if ctx.obj else None)
-    resp = client.agent._client_wrapper.httpx_client.request(
+    resp = client._client_wrapper.httpx_client.request(
         "api/v1/workflows",
         method="GET",
         params={"page": page, "page_size": page_size, "template": template},

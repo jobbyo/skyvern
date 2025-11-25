@@ -6,6 +6,7 @@ import structlog
 from litellm import ConfigDict
 from pydantic import BaseModel, Field
 
+from skyvern.errors.errors import UserDefinedError
 from skyvern.webeye.actions.action_types import ActionType
 
 LOG = structlog.get_logger()
@@ -19,15 +20,6 @@ class ActionStatus(StrEnum):
     completed = "completed"
 
 
-class UserDefinedError(BaseModel):
-    error_code: str
-    reasoning: str
-    confidence_float: float = Field(..., ge=0, le=1)
-
-    def __repr__(self) -> str:
-        return f"{self.reasoning}(error_code={self.error_code}, confidence_float={self.confidence_float})"
-
-
 class SelectOption(BaseModel):
     label: str | None = None
     value: str | None = None
@@ -37,13 +29,50 @@ class SelectOption(BaseModel):
         return f"SelectOption(label={self.label}, value={self.value}, index={self.index})"
 
 
+class VerificationStatus(StrEnum):
+    """Status of user goal verification."""
+
+    complete = "complete"  # Goal achieved successfully
+    terminate = "terminate"  # Goal cannot be achieved, stop trying
+    continue_step = "continue"  # Goal not yet achieved, continue with more steps
+
+
 class CompleteVerifyResult(BaseModel):
-    user_goal_achieved: bool
+    # New field: explicit status with three options (used when experiment is enabled)
+    status: VerificationStatus | None = None
+
+    # Legacy fields: for backward compatibility (used when experiment is disabled)
+    user_goal_achieved: bool = False
+    should_terminate: bool = False
+
     thoughts: str
     page_info: str | None = None
 
     def __repr__(self) -> str:
-        return f"CompleteVerifyResponse(thoughts={self.thoughts}, user_goal_achieved={self.user_goal_achieved}, page_info={self.page_info})"
+        if self.status:
+            return f"CompleteVerifyResult(status={self.status}, thoughts={self.thoughts}, page_info={self.page_info})"
+        return f"CompleteVerifyResult(thoughts={self.thoughts}, user_goal_achieved={self.user_goal_achieved}, should_terminate={self.should_terminate}, page_info={self.page_info})"
+
+    @property
+    def is_complete(self) -> bool:
+        """True if goal was achieved (supports both new and legacy formats)."""
+        if self.status:
+            return self.status == VerificationStatus.complete
+        return self.user_goal_achieved
+
+    @property
+    def is_terminate(self) -> bool:
+        """True if task should terminate (supports both new and legacy formats)."""
+        if self.status:
+            return self.status == VerificationStatus.terminate
+        return self.should_terminate
+
+    @property
+    def is_continue(self) -> bool:
+        """True if task should continue (supports both new and legacy formats)."""
+        if self.status:
+            return self.status == VerificationStatus.continue_step
+        return not self.user_goal_achieved and not self.should_terminate
 
 
 class InputOrSelectContext(BaseModel):
@@ -53,9 +82,15 @@ class InputOrSelectContext(BaseModel):
     is_search_bar: bool | None = None  # don't trigger custom-selection logic when it's a search bar
     is_location_input: bool | None = None  # address input usually requires auto completion
     is_date_related: bool | None = None  # date picker mini agent requires some special logic
+    date_format: str | None = None
 
     def __repr__(self) -> str:
         return f"InputOrSelectContext(field={self.field}, is_required={self.is_required}, is_search_bar={self.is_search_bar}, is_location_input={self.is_location_input}, intention={self.intention})"
+
+
+class ClickContext(BaseModel):
+    thought: str | None = None
+    single_option_click: bool | None = None
 
 
 class Action(BaseModel):
@@ -80,6 +115,7 @@ class Action(BaseModel):
     skyvern_element_hash: str | None = None
     skyvern_element_data: dict[str, Any] | None = None
     tool_call_id: str | None = None
+    xpath: str | None = None
 
     # DecisiveAction (CompleteAction, TerminateAction) fields
     errors: list[UserDefinedError] | None = None
@@ -91,12 +127,18 @@ class Action(BaseModel):
     download: bool | None = None
     is_upload_file_tag: bool | None = None
     text: str | None = None
+    input_or_select_context: InputOrSelectContext | None = None
     option: SelectOption | None = None
     is_checked: bool | None = None
     verified: bool = False
+    click_context: ClickContext | None = None
+
+    # TOTP timing information for multi-field TOTP sequences
+    totp_timing_info: dict[str, Any] | None = None
 
     created_at: datetime | None = None
     modified_at: datetime | None = None
+    created_by: str | None = None
 
     @classmethod
     def validate(cls: Type[T], value: Any) -> T:
@@ -127,12 +169,18 @@ class Action(BaseModel):
                 return SolveCaptchaAction.model_validate(value)
             elif action_type is ActionType.RELOAD_PAGE:
                 return ReloadPageAction.model_validate(value)
+            elif action_type is ActionType.GOTO_URL:
+                return GotoUrlAction.model_validate(value)
+            elif action_type is ActionType.CLOSE_PAGE:
+                return ClosePageAction.model_validate(value)
             else:
                 raise ValueError(f"Unsupported action type: {action_type}")
         else:
             raise ValueError("Invalid action data")
 
     def get_xpath(self) -> str | None:
+        if self.xpath:
+            return self.xpath
         if not self.skyvern_element_data:
             return None
         if "xpath" in self.skyvern_element_data:
@@ -153,6 +201,11 @@ class ReloadPageAction(Action):
     action_type: ActionType = ActionType.RELOAD_PAGE
 
 
+# TODO: right now, it's only enabled when there's magic link during login
+class ClosePageAction(Action):
+    action_type: ActionType = ActionType.CLOSE_PAGE
+
+
 class ClickAction(WebAction):
     action_type: ActionType = ActionType.CLICK
     file_url: str | None = None
@@ -170,9 +223,10 @@ class ClickAction(WebAction):
 class InputTextAction(WebAction):
     action_type: ActionType = ActionType.INPUT_TEXT
     text: str
+    totp_code_required: bool = False
 
     def __repr__(self) -> str:
-        return f"InputTextAction(element_id={self.element_id}, text={self.text}, tool_call_id={self.tool_call_id})"
+        return f"InputTextAction(element_id={self.element_id}, text={self.text}, context={self.input_or_select_context}, tool_call_id={self.tool_call_id})"
 
 
 class UploadFileAction(WebAction):
@@ -204,9 +258,10 @@ class SolveCaptchaAction(Action):
 class SelectOptionAction(WebAction):
     action_type: ActionType = ActionType.SELECT_OPTION
     option: SelectOption
+    download: bool = False
 
     def __repr__(self) -> str:
-        return f"SelectOptionAction(element_id={self.element_id}, option={self.option})"
+        return f"SelectOptionAction(element_id={self.element_id}, option={self.option}, context={self.input_or_select_context}, download={self.download})"
 
 
 ###
@@ -241,7 +296,7 @@ class CompleteAction(DecisiveAction):
 class ExtractAction(Action):
     action_type: ActionType = ActionType.EXTRACT
     data_extraction_goal: str | None = None
-    data_extraction_schema: dict[str, Any] | None = None
+    data_extraction_schema: dict[str, Any] | list | str | None = None
 
 
 class ScrollAction(Action):
@@ -257,6 +312,12 @@ class KeypressAction(Action):
     keys: list[str] = []
     hold: bool = False
     duration: int = 0
+
+
+class GotoUrlAction(Action):
+    action_type: ActionType = ActionType.GOTO_URL
+    url: str
+    is_magic_link: bool = False  # if True, shouldn't go to url directly when replaying the cache
 
 
 class MoveAction(Action):

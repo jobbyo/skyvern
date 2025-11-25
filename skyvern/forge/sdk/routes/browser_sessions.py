@@ -1,13 +1,19 @@
-from fastapi import Depends, HTTPException, Path
+import asyncio
+
+from fastapi import Depends, HTTPException, Path, Query
 from fastapi.responses import ORJSONResponse
 
 from skyvern import analytics
 from skyvern.forge import app
 from skyvern.forge.sdk.routes.code_samples import (
-    CLOSE_BROWSER_SESSION_CODE_SAMPLE,
-    CREATE_BROWSER_SESSION_CODE_SAMPLE,
-    GET_BROWSER_SESSION_CODE_SAMPLE,
-    GET_BROWSER_SESSIONS_CODE_SAMPLE,
+    CLOSE_BROWSER_SESSION_CODE_SAMPLE_PYTHON,
+    CLOSE_BROWSER_SESSION_CODE_SAMPLE_TS,
+    CREATE_BROWSER_SESSION_CODE_SAMPLE_PYTHON,
+    CREATE_BROWSER_SESSION_CODE_SAMPLE_TS,
+    GET_BROWSER_SESSION_CODE_SAMPLE_PYTHON,
+    GET_BROWSER_SESSION_CODE_SAMPLE_TS,
+    GET_BROWSER_SESSIONS_CODE_SAMPLE_PYTHON,
+    GET_BROWSER_SESSIONS_CODE_SAMPLE_TS,
 )
 from skyvern.forge.sdk.routes.routers import base_router
 from skyvern.forge.sdk.schemas.organizations import Organization
@@ -16,16 +22,55 @@ from skyvern.schemas.browser_sessions import CreateBrowserSessionRequest
 from skyvern.webeye.schemas import BrowserSessionResponse
 
 
+@base_router.get(
+    "/browser_sessions/history",
+    include_in_schema=False,
+)
+@base_router.get(
+    "/browser_sessions/history/",
+    include_in_schema=False,
+)
+async def get_browser_sessions_all(
+    current_org: Organization = Depends(org_auth_service.get_current_org),
+    page: int = Query(1, ge=1, description="Page number for pagination"),
+    page_size: int = Query(10, ge=1, le=100, description="Number of items per page"),
+) -> list[BrowserSessionResponse]:
+    """Get all browser sessions for the organization"""
+    analytics.capture("skyvern-oss-agent-browser-sessions-get-all")
+
+    browser_sessions = await app.DATABASE.get_persistent_browser_sessions_history(
+        current_org.organization_id,
+        page=page,
+        page_size=page_size,
+    )
+
+    responses = await asyncio.gather(
+        *[
+            BrowserSessionResponse.from_browser_session(browser_session, app.STORAGE)
+            for browser_session in browser_sessions
+        ]
+    )
+
+    return responses
+
+
 @base_router.post(
     "/browser_sessions",
     response_model=BrowserSessionResponse,
     tags=["Browser Sessions"],
     openapi_extra={
         "x-fern-sdk-method-name": "create_browser_session",
-        "x-fern-examples": [{"code-samples": [{"sdk": "python", "code": CREATE_BROWSER_SESSION_CODE_SAMPLE}]}],
+        "x-fern-examples": [
+            {
+                "code-samples": [
+                    {"sdk": "python", "code": CREATE_BROWSER_SESSION_CODE_SAMPLE_PYTHON},
+                    {"sdk": "typescript", "code": CREATE_BROWSER_SESSION_CODE_SAMPLE_TS},
+                ]
+            }
+        ],
     },
-    description="Create a new browser session",
-    summary="Create a new browser session",
+    description="Create a browser session that persists across multiple runs",
+    summary="Create a session",
     responses={
         200: {"description": "Successfully created browser session"},
         403: {"description": "Unauthorized - Invalid or missing authentication"},
@@ -37,14 +82,15 @@ from skyvern.webeye.schemas import BrowserSessionResponse
     include_in_schema=False,
 )
 async def create_browser_session(
-    browser_session_request: CreateBrowserSessionRequest,
+    browser_session_request: CreateBrowserSessionRequest = CreateBrowserSessionRequest(),
     current_org: Organization = Depends(org_auth_service.get_current_org),
 ) -> BrowserSessionResponse:
     browser_session = await app.PERSISTENT_SESSIONS_MANAGER.create_session(
         organization_id=current_org.organization_id,
         timeout_minutes=browser_session_request.timeout,
+        proxy_location=browser_session_request.proxy_location,
     )
-    return BrowserSessionResponse.from_browser_session(browser_session)
+    return await BrowserSessionResponse.from_browser_session(browser_session)
 
 
 @base_router.post(
@@ -52,10 +98,17 @@ async def create_browser_session(
     tags=["Browser Sessions"],
     openapi_extra={
         "x-fern-sdk-method-name": "close_browser_session",
-        "x-fern-examples": [{"code-samples": [{"sdk": "python", "code": CLOSE_BROWSER_SESSION_CODE_SAMPLE}]}],
+        "x-fern-examples": [
+            {
+                "code-samples": [
+                    {"sdk": "python", "code": CLOSE_BROWSER_SESSION_CODE_SAMPLE_PYTHON},
+                    {"sdk": "typescript", "code": CLOSE_BROWSER_SESSION_CODE_SAMPLE_TS},
+                ]
+            }
+        ],
     },
-    description="Close a browser session",
-    summary="Close a browser session",
+    description="Close a session. Once closed, the session cannot be used again.",
+    summary="Close a session",
     responses={
         200: {"description": "Successfully closed browser session"},
         403: {"description": "Unauthorized - Invalid or missing authentication"},
@@ -87,10 +140,17 @@ async def close_browser_session(
     tags=["Browser Sessions"],
     openapi_extra={
         "x-fern-sdk-method-name": "get_browser_session",
-        "x-fern-examples": [{"code-samples": [{"sdk": "python", "code": GET_BROWSER_SESSION_CODE_SAMPLE}]}],
+        "x-fern-examples": [
+            {
+                "code-samples": [
+                    {"sdk": "python", "code": GET_BROWSER_SESSION_CODE_SAMPLE_PYTHON},
+                    {"sdk": "typescript", "code": GET_BROWSER_SESSION_CODE_SAMPLE_TS},
+                ]
+            }
+        ],
     },
-    description="Get details about a specific browser session by ID",
-    summary="Get browser session details",
+    description="Get details about a specific browser session, including the browser address for cdp connection.",
+    summary="Get a session",
     responses={
         200: {"description": "Successfully retrieved browser session details"},
         404: {"description": "Browser session not found"},
@@ -115,7 +175,7 @@ async def get_browser_session(
     )
     if not browser_session:
         raise HTTPException(status_code=404, detail=f"Browser session {browser_session_id} not found")
-    return BrowserSessionResponse.from_browser_session(browser_session)
+    return await BrowserSessionResponse.from_browser_session(browser_session, app.STORAGE)
 
 
 @base_router.get(
@@ -124,10 +184,17 @@ async def get_browser_session(
     tags=["Browser Sessions"],
     openapi_extra={
         "x-fern-sdk-method-name": "get_browser_sessions",
-        "x-fern-examples": [{"code-samples": [{"sdk": "python", "code": GET_BROWSER_SESSIONS_CODE_SAMPLE}]}],
+        "x-fern-examples": [
+            {
+                "code-samples": [
+                    {"sdk": "python", "code": GET_BROWSER_SESSIONS_CODE_SAMPLE_PYTHON},
+                    {"sdk": "typescript", "code": GET_BROWSER_SESSIONS_CODE_SAMPLE_TS},
+                ]
+            }
+        ],
     },
     description="Get all active browser sessions for the organization",
-    summary="Get all active browser sessions",
+    summary="Get active browser sessions",
     responses={
         200: {"description": "Successfully retrieved all active browser sessions"},
         403: {"description": "Unauthorized - Invalid or missing authentication"},
@@ -144,4 +211,9 @@ async def get_browser_sessions(
     """Get all active browser sessions for the organization"""
     analytics.capture("skyvern-oss-agent-browser-sessions-get")
     browser_sessions = await app.PERSISTENT_SESSIONS_MANAGER.get_active_sessions(current_org.organization_id)
-    return [BrowserSessionResponse.from_browser_session(browser_session) for browser_session in browser_sessions]
+    return await asyncio.gather(
+        *[
+            BrowserSessionResponse.from_browser_session(browser_session, app.STORAGE)
+            for browser_session in browser_sessions
+        ]
+    )

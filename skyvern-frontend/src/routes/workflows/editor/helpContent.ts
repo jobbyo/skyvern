@@ -14,7 +14,7 @@ export const baseHelpTooltipContent = {
   completeOnDownload:
     "Allow Skyvern to auto-complete the block when it downloads a file.",
   fileSuffix:
-    "A file suffix that's automatically added to all downloaded files.",
+    "The complete filename (without extension) for downloaded files. This replaces the entire filename instead of being appended to a random name.",
   errorCodeMapping:
     "Knowing about why a block terminated can be important, specify error messages here.",
   totpVerificationUrl:
@@ -23,7 +23,6 @@ export const baseHelpTooltipContent = {
     "If you are running multiple workflows at once, you will need to give the block an identifier to know that this TOTP goes with this block.",
   continueOnFailure:
     "Allow the workflow to continue if it encounters a failure.",
-  cacheActions: "Cache the actions of this block.",
   includeActionHistoryInVerification:
     "Include the action history in the completion verification.",
 } as const;
@@ -34,7 +33,7 @@ export const basePlaceholderContent = {
   dataExtractionGoal: "What data do you need to extract?",
   maxRetries: "Default: 3",
   maxStepsOverride: "Default: 10",
-  downloadSuffix: "Add an ID for downloaded files",
+  downloadSuffix: "Enter the complete filename (without extension)",
   totpVerificationUrl: "Provide your 2FA endpoint",
   totpIdentifier: "Add an ID that links your TOTP to the block",
 };
@@ -72,7 +71,7 @@ export const helpTooltips = {
   loop: {
     ...baseHelpTooltipContent,
     loopValue:
-      "Define this parameterized field with a parameter key to let Skyvern know the core value you're iterating over.",
+      "Define the values to iterate over. Use a parameter reference or natural language (e.g., 'Extract links of the top 2 posts'). Natural language automatically creates an extraction block that generates a list of string values. Use {{ current_value }} in the loop to get the current iteration value.",
   },
   sendEmail: {
     ...baseHelpTooltipContent,
@@ -93,6 +92,9 @@ export const helpTooltips = {
     aws_secret_access_key:
       "The AWS secret access key to use to upload the file to S3.",
     region_name: "The AWS region",
+    azure_storage_account_name: "The Azure Storage Account Name.",
+    azure_storage_account_key: "The Azure Storage Account Key.",
+    azure_blob_container_name: "The Azure Blob Container Name.",
   },
   download: {
     ...baseHelpTooltipContent,
@@ -177,4 +179,8 @@ export const placeholders = {
       '{\n  "Content-Type": "application/json",\n  "Authorization": "Bearer {{ token }}"\n}',
     body: '{\n  "key": "value",\n  "parameter": "{{ parameter_name }}"\n}',
   },
+  scripts: {
+    scriptKey: "my-{{param1}}-{{param2}}-key",
+  },
+  sequentialKey: "my-{{param1}}-{{param2}}-sequential",
 };

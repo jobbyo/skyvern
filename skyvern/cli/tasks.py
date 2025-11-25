@@ -11,6 +11,7 @@ from rich.panel import Panel
 
 from skyvern.client import Skyvern
 from skyvern.config import settings
+from skyvern.utils.env_paths import resolve_backend_env_path
 
 from .console import console
 
@@ -33,15 +34,14 @@ def tasks_callback(
 
 def _get_client(api_key: str | None = None) -> Skyvern:
     """Instantiate a Skyvern SDK client using environment variables."""
-    load_dotenv()
-    load_dotenv(".env")
+    load_dotenv(resolve_backend_env_path())
     key = api_key or os.getenv("SKYVERN_API_KEY") or settings.SKYVERN_API_KEY
     return Skyvern(base_url=settings.SKYVERN_BASE_URL, api_key=key)
 
 
 def _list_workflow_tasks(client: Skyvern, run_id: str) -> list[dict]:
     """Return tasks for the given workflow run."""
-    resp = client.agent._client_wrapper.httpx_client.request(
+    resp = client._client_wrapper.httpx_client.request(
         "api/v1/tasks",
         method="GET",
         params={"workflow_run_id": run_id, "page_size": 100, "page": 1},

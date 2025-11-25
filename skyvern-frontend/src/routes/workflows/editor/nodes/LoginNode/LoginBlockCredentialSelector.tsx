@@ -9,7 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useCredentialsQuery } from "@/routes/workflows/hooks/useCredentialsQuery";
 import CloudContext from "@/store/CloudContext";
 import { useContext } from "react";
-import { useWorkflowParametersState } from "../../useWorkflowParametersState";
+import { useWorkflowParametersStore } from "@/store/WorkflowParametersStore";
 import { CredentialsModal } from "@/routes/credentials/CredentialsModal";
 import { PlusIcon } from "@radix-ui/react-icons";
 import {
@@ -27,11 +27,31 @@ type Props = {
   onChange?: (value: string) => void;
 };
 
+// Function to generate a unique credential parameter key
+function generateDefaultCredentialParameterKey(existingKeys: string[]): string {
+  const baseName = "credentials";
+
+  // Check if "credentials" is available
+  if (!existingKeys.includes(baseName)) {
+    return baseName;
+  }
+
+  // Find the next available number
+  let counter = 1;
+  while (existingKeys.includes(`${baseName}_${counter}`)) {
+    counter++;
+  }
+
+  return `${baseName}_${counter}`;
+}
+
 function LoginBlockCredentialSelector({ nodeId, value, onChange }: Props) {
   const { setIsOpen, setType } = useCredentialModalState();
   const nodes = useNodes<AppNode>();
-  const [workflowParameters, setWorkflowParameters] =
-    useWorkflowParametersState();
+  const {
+    parameters: workflowParameters,
+    setParameters: setWorkflowParameters,
+  } = useWorkflowParametersStore();
   const credentialParameters = workflowParameters.filter(
     (parameter) =>
       parameter.parameterType === "credential" ||
@@ -122,22 +142,31 @@ function LoginBlockCredentialSelector({ nodeId, value, onChange }: Props) {
           }
 
           const option = options.find((option) => option.value === newValue);
+          let parameterKeyToUse = newValue;
           if (option?.type === "credential") {
             const existingCredential = workflowParameters.find((parameter) => {
               return (
                 parameter.parameterType === "credential" &&
                 "credentialId" in parameter &&
-                parameter.credentialId === newValue &&
-                parameter.key === newValue
+                parameter.credentialId === newValue
               );
             });
-            if (!existingCredential) {
+            if (existingCredential) {
+              // Use the existing parameter's key
+              parameterKeyToUse = existingCredential.key;
+            } else {
+              // Generate a new parameter key based on existing keys
+              const existingKeys = newParameters.map((param) => param.key);
+              const newKey =
+                generateDefaultCredentialParameterKey(existingKeys);
+              parameterKeyToUse = newKey;
+
               newParameters = [
                 ...newParameters,
                 {
                   parameterType: "credential",
                   credentialId: newValue,
-                  key: newValue,
+                  key: newKey,
                 },
               ];
             }
@@ -146,7 +175,7 @@ function LoginBlockCredentialSelector({ nodeId, value, onChange }: Props) {
               (parameter) => parameter.key !== value,
             );
           }
-          onChange?.(newValue);
+          onChange?.(parameterKeyToUse);
           setWorkflowParameters(newParameters);
         }}
       >
@@ -169,17 +198,18 @@ function LoginBlockCredentialSelector({ nodeId, value, onChange }: Props) {
       </Select>
       <CredentialsModal
         onCredentialCreated={(id) => {
-          onChange?.(id);
-          setWorkflowParameters((prev) => {
-            return [
-              ...prev,
-              {
-                parameterType: "credential",
-                credentialId: id,
-                key: id,
-              },
-            ];
-          });
+          const existingKeys = workflowParameters.map((param) => param.key);
+          const newKey = generateDefaultCredentialParameterKey(existingKeys);
+
+          onChange?.(newKey);
+          setWorkflowParameters([
+            ...workflowParameters,
+            {
+              parameterType: "credential",
+              credentialId: id,
+              key: newKey,
+            },
+          ]);
         }}
       />
     </>

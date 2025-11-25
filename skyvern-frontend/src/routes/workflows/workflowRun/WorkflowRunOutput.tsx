@@ -1,6 +1,6 @@
 import { FileIcon } from "@radix-ui/react-icons";
 import { CodeEditor } from "../components/CodeEditor";
-import { useWorkflowRunQuery } from "../hooks/useWorkflowRunQuery";
+import { useWorkflowRunWithWorkflowQuery } from "../hooks/useWorkflowRunWithWorkflowQuery";
 import { useActiveWorkflowRunItem } from "./useActiveWorkflowRunItem";
 import {
   hasExtractedInformation,
@@ -17,7 +17,7 @@ function WorkflowRunOutput() {
   const { data: workflowRunTimeline, isLoading: workflowRunTimelineIsLoading } =
     useWorkflowRunTimelineQuery();
   const [activeItem] = useActiveWorkflowRunItem();
-  const { data: workflowRun } = useWorkflowRunQuery();
+  const { data: workflowRun } = useWorkflowRunWithWorkflowQuery();
 
   if (workflowRunTimelineIsLoading) {
     return <div>Loading...</div>;
@@ -52,9 +52,22 @@ function WorkflowRunOutput() {
   const outputs = workflowRun?.outputs;
   const fileUrls = workflowRun?.downloaded_file_urls ?? [];
   const observerOutput = workflowRun?.task_v2?.output;
+  const webhookFailureReasonData =
+    workflowRun?.task_v2?.webhook_failure_reason ??
+    workflowRun?.webhook_failure_reason;
 
   return (
     <div className="space-y-5">
+      {webhookFailureReasonData ? (
+        <div className="rounded bg-slate-elevation2 p-6">
+          <div className="space-y-4">
+            <h1 className="text-lg font-bold">Webhook Failure Reason</h1>
+            <div className="space-y-2 text-yellow-600">
+              {webhookFailureReasonData}
+            </div>
+          </div>
+        </div>
+      ) : null}
       {activeBlock ? (
         <div className="rounded bg-slate-elevation2 p-6">
           <div className="space-y-4">

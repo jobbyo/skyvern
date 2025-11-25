@@ -1,5 +1,6 @@
 import { Navigate, Outlet, createBrowserRouter } from "react-router-dom";
-import { BrowserSession } from "@/routes/browserSession/BrowserSession";
+import { BrowserSession } from "@/routes/browserSessions/BrowserSession";
+import { BrowserSessions } from "@/routes/browserSessions/BrowserSessions";
 import { PageLayout } from "./components/PageLayout";
 import { DiscoverPage } from "./routes/discover/DiscoverPage";
 import { HistoryPage } from "./routes/history/HistoryPage";
@@ -13,18 +14,21 @@ import { TaskDetails } from "./routes/tasks/detail/TaskDetails";
 import { TaskParameters } from "./routes/tasks/detail/TaskParameters";
 import { TaskRecording } from "./routes/tasks/detail/TaskRecording";
 import { TasksPage } from "./routes/tasks/list/TasksPage";
+import { Debugger } from "@/routes/workflows/debugger/Debugger";
 import { WorkflowPage } from "./routes/workflows/WorkflowPage";
 import { WorkflowRun } from "./routes/workflows/WorkflowRun";
 import { WorkflowRunParameters } from "./routes/workflows/WorkflowRunParameters";
 import { Workflows } from "./routes/workflows/Workflows";
 import { WorkflowsPageLayout } from "./routes/workflows/WorkflowsPageLayout";
-import { WorkflowDebugger } from "./routes/workflows/editor/WorkflowDebugger";
 import { WorkflowEditor } from "./routes/workflows/editor/WorkflowEditor";
 import { WorkflowPostRunParameters } from "./routes/workflows/workflowRun/WorkflowPostRunParameters";
 import { WorkflowRunOutput } from "./routes/workflows/workflowRun/WorkflowRunOutput";
 import { WorkflowRunOverview } from "./routes/workflows/workflowRun/WorkflowRunOverview";
 import { WorkflowRunRecording } from "./routes/workflows/workflowRun/WorkflowRunRecording";
+import { WorkflowRunCode } from "@/routes/workflows/workflowRun/WorkflowRunCode";
 import { DebugStoreProvider } from "@/store/DebugStoreContext";
+import { CredentialsPage } from "@/routes/credentials/CredentialsPage.tsx";
+import { RunRouter } from "@/routes/runs/RunRouter";
 
 const router = createBrowserRouter([
   {
@@ -39,6 +43,24 @@ const router = createBrowserRouter([
       </DebugStoreProvider>
     ),
     children: [
+      {
+        path: "runs",
+        element: <PageLayout />,
+        children: [
+          {
+            index: true,
+            element: <HistoryPage />,
+          },
+        ],
+      },
+      {
+        path: "runs/:runId/*",
+        element: <RunRouter />,
+      },
+      {
+        path: "browser-sessions",
+        element: <BrowserSessions />,
+      },
       {
         index: true,
         element: <Navigate to="/discover" />,
@@ -111,11 +133,11 @@ const router = createBrowserRouter([
               },
               {
                 path: "debug",
-                element: <WorkflowDebugger />,
+                element: <Debugger />,
               },
               {
                 path: ":workflowRunId/:blockLabel/debug",
-                element: <WorkflowDebugger />,
+                element: <Debugger />,
               },
               {
                 path: "edit",
@@ -158,6 +180,12 @@ const router = createBrowserRouter([
                     path: "recording",
                     element: <WorkflowRunRecording />,
                   },
+                  {
+                    path: "code",
+                    element: (
+                      <WorkflowRunCode showCacheKeyValueSelector={true} />
+                    ),
+                  },
                 ],
               },
             ],
@@ -191,6 +219,16 @@ const router = createBrowserRouter([
           {
             index: true,
             element: <Settings />,
+          },
+        ],
+      },
+      {
+        path: "credentials",
+        element: <PageLayout />,
+        children: [
+          {
+            index: true,
+            element: <CredentialsPage />,
           },
         ],
       },

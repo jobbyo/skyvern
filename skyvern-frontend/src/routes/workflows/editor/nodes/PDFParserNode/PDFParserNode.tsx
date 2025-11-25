@@ -1,40 +1,32 @@
 import { HelpTooltip } from "@/components/HelpTooltip";
 import { Label } from "@/components/ui/label";
 import { WorkflowBlockInput } from "@/components/WorkflowBlockInput";
-import { Handle, NodeProps, Position, useReactFlow } from "@xyflow/react";
-import { useState } from "react";
+import { Handle, NodeProps, Position } from "@xyflow/react";
 import { helpTooltips } from "../../helpContent";
 import { dataSchemaExampleForFileExtraction } from "../types";
 import { type PDFParserNode } from "./types";
 import { WorkflowDataSchemaInputGroup } from "@/components/DataSchemaInputGroup/WorkflowDataSchemaInputGroup";
 import { useIsFirstBlockInWorkflow } from "../../hooks/useIsFirstNodeInWorkflow";
-import { useDebugStore } from "@/store/useDebugStore";
 import { cn } from "@/util/utils";
 import { NodeHeader } from "../components/NodeHeader";
 import { useParams } from "react-router-dom";
+import { statusIsRunningOrQueued } from "@/routes/tasks/types";
+import { useWorkflowRunQuery } from "@/routes/workflows/hooks/useWorkflowRunQuery";
+import { useUpdate } from "@/routes/workflows/editor/useUpdate";
+import { ModelSelector } from "@/components/ModelSelector";
 
 function PDFParserNode({ id, data }: NodeProps<PDFParserNode>) {
-  const { updateNodeData } = useReactFlow();
-  const { debuggable, editable, label } = data;
-  const debugStore = useDebugStore();
-  const elideFromDebugging = debugStore.isDebugMode && !debuggable;
+  const { editable, label } = data;
   const { blockLabel: urlBlockLabel } = useParams();
-  const thisBlockIsPlaying =
+  const { data: workflowRun } = useWorkflowRunQuery();
+  const workflowRunIsRunningOrQueued =
+    workflowRun && statusIsRunningOrQueued(workflowRun);
+  const thisBlockIsTargetted =
     urlBlockLabel !== undefined && urlBlockLabel === label;
-  const [inputs, setInputs] = useState({
-    fileUrl: data.fileUrl,
-    jsonSchema: data.jsonSchema,
-  });
-
-  function handleChange(key: string, value: unknown) {
-    if (!data.editable) {
-      return;
-    }
-    setInputs({ ...inputs, [key]: value });
-    updateNodeData(id, { [key]: value });
-  }
-
+  const thisBlockIsPlaying =
+    workflowRunIsRunningOrQueued && thisBlockIsTargetted;
   const isFirstWorkflowBlock = useIsFirstBlockInWorkflow({ id });
+  const update = useUpdate<PDFParserNode["data"]>({ id, editable });
 
   return (
     <div>
@@ -54,14 +46,14 @@ function PDFParserNode({ id, data }: NodeProps<PDFParserNode>) {
         className={cn(
           "transform-origin-center w-[30rem] space-y-4 rounded-lg bg-slate-elevation3 px-6 py-4 transition-all",
           {
-            "pointer-events-none bg-slate-950 outline outline-2 outline-slate-300":
-              thisBlockIsPlaying,
+            "pointer-events-none": thisBlockIsPlaying,
+            "bg-slate-950 outline outline-2 outline-slate-300":
+              thisBlockIsTargetted,
           },
         )}
       >
         <NodeHeader
           blockLabel={label}
-          disabled={elideFromDebugging}
           editable={editable}
           nodeId={id}
           totpIdentifier={null}
@@ -83,20 +75,27 @@ function PDFParserNode({ id, data }: NodeProps<PDFParserNode>) {
             </div>
             <WorkflowBlockInput
               nodeId={id}
-              value={inputs.fileUrl}
+              value={data.fileUrl}
               onChange={(value) => {
-                handleChange("fileUrl", value);
+                update({ fileUrl: value });
               }}
               className="nopan text-xs"
             />
           </div>
           <WorkflowDataSchemaInputGroup
             exampleValue={dataSchemaExampleForFileExtraction}
-            value={inputs.jsonSchema}
+            value={data.jsonSchema}
             onChange={(value) => {
-              handleChange("jsonSchema", value);
+              update({ jsonSchema: value });
             }}
             suggestionContext={{}}
+          />
+          <ModelSelector
+            className="nopan w-52 text-xs"
+            value={data.model}
+            onChange={(value) => {
+              update({ model: value });
+            }}
           />
         </div>
       </div>

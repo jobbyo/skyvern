@@ -29,7 +29,10 @@ function useCreateWorkflowMutation() {
       queryClient.invalidateQueries({
         queryKey: ["workflows"],
       });
-      navigate(`/workflows/${response.data.workflow_permanent_id}/edit`);
+      queryClient.invalidateQueries({
+        queryKey: ["folders"],
+      });
+      navigate(`/workflows/${response.data.workflow_permanent_id}/debug`);
     },
   });
 }

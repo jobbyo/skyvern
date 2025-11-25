@@ -12,10 +12,18 @@ from playwright.async_api import ElementHandle, Frame, Locator, Page
 from pydantic import BaseModel, PrivateAttr
 
 from skyvern.config import settings
-from skyvern.constants import BUILDING_ELEMENT_TREE_TIMEOUT_MS, DEFAULT_MAX_TOKENS, SKYVERN_DIR, SKYVERN_ID_ATTR
-from skyvern.exceptions import FailedToTakeScreenshot, ScrapingFailed, UnknownElementTreeFormat
+from skyvern.constants import DEFAULT_MAX_TOKENS, SKYVERN_DIR, SKYVERN_ID_ATTR
+from skyvern.exceptions import (
+    FailedToTakeScreenshot,
+    NoElementFound,
+    ScrapingFailed,
+    ScrapingFailedBlankPage,
+    UnknownElementTreeFormat,
+)
+from skyvern.experimentation.wait_utils import empty_page_retry_wait
 from skyvern.forge.sdk.api.crypto import calculate_sha256
 from skyvern.forge.sdk.core import skyvern_context
+from skyvern.forge.sdk.settings_manager import SettingsManager
 from skyvern.forge.sdk.trace import TraceManager
 from skyvern.utils.image_resizer import Resolution
 from skyvern.utils.token_counter import count_tokens
@@ -29,10 +37,11 @@ ScrapeExcludeFunc = Callable[[Page, Frame], Awaitable[bool]]
 RESERVED_ATTRIBUTES = {
     "accept",  # for input file
     "alt",
-    "shape-description",  # for css shape
     "aria-checked",  # for option tag
     "aria-current",
+    "aria-disabled",
     "aria-label",
+    "aria-readonly",
     "aria-required",
     "aria-role",
     "aria-selected",  # for option tag
@@ -40,7 +49,6 @@ RESERVED_ATTRIBUTES = {
     "data-original-title",  # for bootstrap tooltip
     "data-ui",
     "disabled",  # for button
-    "aria-disabled",
     "for",
     "href",  # For a tags
     "maxlength",
@@ -50,6 +58,7 @@ RESERVED_ATTRIBUTES = {
     "readonly",
     "required",
     "selected",  # for option tag
+    "shape-description",  # for css shape
     "src",  # do we need this?
     "text-value",
     "title",
@@ -107,7 +116,7 @@ def json_to_html(element: dict, need_skyvern_attrs: bool = True) -> str:
         if not interactable:
             return ""
         else:
-            LOG.info("Element is interactable. Trimmed all attributes instead of dropping it", element=element)
+            LOG.debug("Element is interactable. Trimmed all attributes instead of dropping it", element=element)
             attributes = {}
 
     context = skyvern_context.ensure_context()
@@ -143,6 +152,8 @@ def json_to_html(element: dict, need_skyvern_attrs: bool = True) -> str:
     # build option HTML
     option_html = "".join(
         f'<option index="{option.get("optionIndex")}">{option.get("text")}</option>'
+        if option.get("text")
+        else f'<option index="{option.get("optionIndex")}" value="{option.get("value")}">{option.get("text")}</option>'
         for option in element.get("options", [])
     )
 
@@ -250,16 +261,16 @@ class ScrapedPage(BaseModel, ElementTreeBuilder):
     elements: list[dict]
     id_to_element_dict: dict[str, dict] = {}
     id_to_frame_dict: dict[str, str] = {}
-    id_to_css_dict: dict[str, str]
-    id_to_element_hash: dict[str, str]
-    hash_to_element_ids: dict[str, list[str]]
+    id_to_css_dict: dict[str, str] = {}
+    id_to_element_hash: dict[str, str] = {}
+    hash_to_element_ids: dict[str, list[str]] = {}
     element_tree: list[dict]
     element_tree_trimmed: list[dict]
     economy_element_tree: list[dict] | None = None
     last_used_element_tree: list[dict] | None = None
-    screenshots: list[bytes]
-    url: str
-    html: str
+    screenshots: list[bytes] = []
+    url: str = ""
+    html: str = ""
     extracted_text: str | None = None
     window_dimension: dict[str, int] | None = None
     _browser_state: BrowserState = PrivateAttr()
@@ -321,16 +332,18 @@ class ScrapedPage(BaseModel, ElementTreeBuilder):
 
             self.economy_element_tree = economy_elements
 
-        final_element_tree = self.economy_element_tree[: int(len(self.economy_element_tree) * percent_to_keep)]
-        self.last_used_element_tree = final_element_tree
+        self.last_used_element_tree = self.economy_element_tree
 
         if fmt == ElementTreeFormat.JSON:
-            return json.dumps(final_element_tree)
+            element_str = json.dumps(self.economy_element_tree)
+            return element_str[: int(len(element_str) * percent_to_keep)]
 
         if fmt == ElementTreeFormat.HTML:
-            return "".join(
-                json_to_html(element, need_skyvern_attrs=html_need_skyvern_attrs) for element in final_element_tree
+            element_str = "".join(
+                json_to_html(element, need_skyvern_attrs=html_need_skyvern_attrs)
+                for element in self.economy_element_tree
             )
+            return element_str[: int(len(element_str) * percent_to_keep)]
 
         raise UnknownElementTreeFormat(fmt=fmt)
 
@@ -353,11 +366,12 @@ class ScrapedPage(BaseModel, ElementTreeBuilder):
             element["children"] = new_children
         return element
 
-    async def refresh(self, draw_boxes: bool = True, scroll: bool = True) -> Self:
+    async def refresh(self, draw_boxes: bool = True, scroll: bool = True, max_retries: int = 0) -> Self:
         refreshed_page = await scrape_website(
             browser_state=self._browser_state,
             url=self.url,
             cleanup_element_tree=self._clean_up_func,
+            max_retries=max_retries,
             scrape_exclude=self._scrape_exclude,
             draw_boxes=draw_boxes,
             scroll=scroll,
@@ -377,20 +391,25 @@ class ScrapedPage(BaseModel, ElementTreeBuilder):
         return self
 
     async def generate_scraped_page(
-        self, draw_boxes: bool = True, scroll: bool = True, take_screenshots: bool = True
+        self,
+        draw_boxes: bool = True,
+        scroll: bool = True,
+        take_screenshots: bool = True,
+        max_retries: int = 0,
     ) -> Self:
         return await scrape_website(
             browser_state=self._browser_state,
             url=self.url,
             cleanup_element_tree=self._clean_up_func,
+            max_retries=max_retries,
             scrape_exclude=self._scrape_exclude,
             take_screenshots=take_screenshots,
             draw_boxes=draw_boxes,
             scroll=scroll,
         )
 
-    async def generate_scraped_page_without_screenshots(self) -> Self:
-        return await self.generate_scraped_page(take_screenshots=False)
+    async def generate_scraped_page_without_screenshots(self, max_retries: int = 0) -> Self:
+        return await self.generate_scraped_page(take_screenshots=False, max_retries=max_retries)
 
 
 @TraceManager.traced_async(ignore_input=True)
@@ -399,11 +418,14 @@ async def scrape_website(
     url: str,
     cleanup_element_tree: CleanupElementTreeFunc,
     num_retry: int = 0,
+    max_retries: int = settings.MAX_SCRAPING_RETRIES,
     scrape_exclude: ScrapeExcludeFunc | None = None,
     take_screenshots: bool = True,
     draw_boxes: bool = True,
     max_screenshot_number: int = settings.MAX_NUM_SCREENSHOTS,
     scroll: bool = True,
+    support_empty_page: bool = False,
+    wait_seconds: float = 0,
 ) -> ScrapedPage:
     """
     ************************************************************************************************
@@ -427,11 +449,6 @@ async def scrape_website(
     :raises Exception: When scraping fails after maximum retries.
     """
 
-    # TODO(jdo) why is this a problem?
-    # ref: https://skyvern.slack.com/archives/C074UNDSRJM/p1752771256298149
-    # if not url.strip():
-    #     raise ScrapingFailedNoUrl()
-
     try:
         num_retry += 1
         return await scrape_web_unsafe(
@@ -443,13 +460,18 @@ async def scrape_website(
             draw_boxes=draw_boxes,
             max_screenshot_number=max_screenshot_number,
             scroll=scroll,
+            support_empty_page=support_empty_page,
+            wait_seconds=wait_seconds,
         )
+    except ScrapingFailedBlankPage:
+        raise
     except Exception as e:
         # NOTE: MAX_SCRAPING_RETRIES is set to 0 in both staging and production
-        if num_retry > settings.MAX_SCRAPING_RETRIES:
+        if num_retry > max_retries:
             LOG.error(
                 "Scraping failed after max retries, aborting.",
-                max_retries=settings.MAX_SCRAPING_RETRIES,
+                max_retries=max_retries,
+                num_retry=num_retry,
                 url=url,
                 exc_info=True,
             )
@@ -457,12 +479,14 @@ async def scrape_website(
                 raise e
             else:
                 raise ScrapingFailed() from e
-        LOG.info("Scraping failed, will retry", num_retry=num_retry, url=url)
+        LOG.info("Scraping failed, will retry", max_retries=max_retries, num_retry=num_retry, url=url, wait_seconds=0.5)
+        await asyncio.sleep(0.5)
         return await scrape_website(
             browser_state,
             url,
             cleanup_element_tree,
             num_retry=num_retry,
+            max_retries=max_retries,
             scrape_exclude=scrape_exclude,
             take_screenshots=take_screenshots,
             draw_boxes=draw_boxes,
@@ -519,6 +543,8 @@ async def scrape_web_unsafe(
     draw_boxes: bool = True,
     max_screenshot_number: int = settings.MAX_NUM_SCREENSHOTS,
     scroll: bool = True,
+    support_empty_page: bool = False,
+    wait_seconds: float = 0,
 ) -> ScrapedPage:
     """
     Asynchronous function that performs web scraping without any built-in error handling. This function is intended
@@ -539,11 +565,23 @@ async def scrape_web_unsafe(
     # We check if the scroll_y_px_old is the same as scroll_y_px to determine if we have reached the end of the page.
     # This also solves the issue where we can't scroll due to a popup.(e.g. geico first popup on the homepage after
     # clicking start my quote)
+    url = page.url
+    if url == "about:blank" and not support_empty_page:
+        raise ScrapingFailedBlankPage()
 
-    LOG.info("Waiting for 3 seconds before scraping the website.")
-    await asyncio.sleep(3)
+    skyvern_frame = await SkyvernFrame.create_instance(page)
+    await skyvern_frame.safe_wait_for_animation_end()
+
+    if wait_seconds > 0:
+        LOG.info(f"Waiting for {wait_seconds} seconds before scraping the website.", wait_seconds=wait_seconds)
+        await asyncio.sleep(wait_seconds)
 
     elements, element_tree = await get_interactable_element_tree(page, scrape_exclude)
+    if not elements and not support_empty_page:
+        LOG.warning("No elements found on the page, wait and retry")
+        await empty_page_retry_wait()
+        elements, element_tree = await get_interactable_element_tree(page, scrape_exclude)
+
     element_tree = await cleanup_element_tree(page, url, copy.deepcopy(element_tree))
     element_tree_trimmed = trim_element_tree(copy.deepcopy(element_tree))
 
@@ -567,9 +605,9 @@ async def scrape_web_unsafe(
         elements
     )
 
-    # if there are no elements, fail the scraping
-    if not elements:
-        raise Exception("No elements found on the page")
+    # if there are no elements, fail the scraping unless support_empty_page is True
+    if not elements and not support_empty_page:
+        raise NoElementFound()
 
     text_content = await get_frame_text(page.main_frame)
 
@@ -597,7 +635,7 @@ async def scrape_web_unsafe(
         element_tree=element_tree,
         element_tree_trimmed=element_tree_trimmed,
         screenshots=screenshots,
-        url=page.url,
+        url=url,
         html=html,
         extracted_text=text_content,
         window_dimension=window_dimension,
@@ -647,6 +685,12 @@ async def add_frame_interactable_elements(
         if not await frame_element.is_visible():
             return elements, element_tree
         unique_id = await frame_element.get_attribute("unique_id")
+        if not unique_id:
+            LOG.info(
+                "No unique_id found for frame, skipping",
+                frame_index=frame_index,
+            )
+            return elements, element_tree
     except Exception:
         LOG.warning(
             "Unable to get unique_id from frame_element",
@@ -655,6 +699,8 @@ async def add_frame_interactable_elements(
         return elements, element_tree
 
     skyvern_frame = await SkyvernFrame.create_instance(frame)
+    await skyvern_frame.safe_wait_for_animation_end()
+
     frame_elements, frame_element_tree = await skyvern_frame.build_tree_from_body(
         frame_name=unique_id, frame_index=frame_index
     )
@@ -765,7 +811,9 @@ class IncrementalScrapePage(ElementTreeBuilder):
             return
         js_script = "async () => await stopGlobalIncrementalObserver()"
         await SkyvernFrame.evaluate(
-            frame=self.skyvern_frame.get_frame(), expression=js_script, timeout_ms=BUILDING_ELEMENT_TREE_TIMEOUT_MS
+            frame=self.skyvern_frame.get_frame(),
+            expression=js_script,
+            timeout_ms=SettingsManager.get_settings().BROWSER_SCRAPING_BUILDING_ELEMENT_TREE_TIMEOUT_MS,
         )
 
     async def get_incremental_elements_num(self) -> int:
@@ -862,16 +910,23 @@ class IncrementalScrapePage(ElementTreeBuilder):
 
 def _should_keep_unique_id(element: dict) -> bool:
     # case where we shouldn't keep unique_id
-    # 1. not disable attr and no interactable
-    # 2. disable=false and intrecatable=false
+    # 1. no readonly attr and not disable attr and no interactable
+    # 2. readonly=false and disable=false and interactable=false
 
     attributes = element.get("attributes", {})
-    if "disabled" not in attributes and "aria-disabled" not in attributes:
+    if (
+        "disabled" not in attributes
+        and "aria-disabled" not in attributes
+        and "readonly" not in attributes
+        and "aria-readonly" not in attributes
+    ):
         return element.get("interactable", False)
 
     disabled = attributes.get("disabled")
     aria_disabled = attributes.get("aria-disabled")
-    if disabled or aria_disabled:
+    readonly = attributes.get("readonly")
+    aria_readonly = attributes.get("aria-readonly")
+    if disabled or aria_disabled or readonly or aria_readonly:
         return True
     return element.get("interactable", False)
 

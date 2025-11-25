@@ -5,14 +5,13 @@ import { toast } from "@/components/ui/use-toast";
 import { ZoomableImage } from "@/components/ZoomableImage";
 import { useCostCalculator } from "@/hooks/useCostCalculator";
 import { useCredentialGetter } from "@/hooks/useCredentialGetter";
-import { envCredential } from "@/util/env";
+import { getRuntimeApiKey } from "@/util/env";
 import {
   keepPreviousData,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
 import {
   statusIsFinalized,
   statusIsNotFinalized,
@@ -21,6 +20,7 @@ import {
 import { ActionScreenshot } from "./ActionScreenshot";
 import { useActions } from "./hooks/useActions";
 import { ScrollableActionList } from "./ScrollableActionList";
+import { useFirstParam } from "@/hooks/useFirstParam";
 
 const formatter = Intl.NumberFormat("en-US", {
   style: "currency",
@@ -38,7 +38,7 @@ let socket: WebSocket | null = null;
 const wssBaseUrl = import.meta.env.VITE_WSS_BASE_URL;
 
 function TaskActions() {
-  const { taskId } = useParams();
+  const taskId = useFirstParam("taskId", "runId");
   const credentialGetter = useCredentialGetter();
   const [streamImgSrc, setStreamImgSrc] = useState<string>("");
   const [selectedAction, setSelectedAction] = useState<
@@ -79,7 +79,8 @@ function TaskActions() {
         const token = await credentialGetter();
         credential = `?token=Bearer ${token}`;
       } else {
-        credential = `?apikey=${envCredential}`;
+        const apiKey = getRuntimeApiKey();
+        credential = apiKey ? `?apikey=${apiKey}` : "";
       }
       if (socket) {
         socket.close();
@@ -156,7 +157,7 @@ function TaskActions() {
   });
 
   const { data: actions, isLoading: actionsIsLoading } = useActions({
-    id: taskId,
+    id: taskId ?? undefined,
   });
 
   if (taskIsLoading || actionsIsLoading || stepsIsLoading) {

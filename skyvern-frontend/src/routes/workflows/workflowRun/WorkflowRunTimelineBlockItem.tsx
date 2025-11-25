@@ -4,6 +4,12 @@ import {
   CubeIcon,
   ExternalLinkIcon,
 } from "@radix-ui/react-icons";
+import { useCallback } from "react";
+import { Link } from "react-router-dom";
+
+import { Status } from "@/api/types";
+import { formatDuration, toDuration } from "@/routes/workflows/utils";
+import { cn } from "@/util/utils";
 import { workflowBlockTitle } from "../editor/nodes/types";
 import { WorkflowBlockIcon } from "../editor/nodes/WorkflowBlockIcon";
 import {
@@ -20,13 +26,11 @@ import {
   ActionItem,
   WorkflowRunOverviewActiveElement,
 } from "./WorkflowRunOverview";
-import { cn } from "@/util/utils";
-import { isTaskVariantBlock } from "../types/workflowTypes";
-import { Link } from "react-router-dom";
-import { useCallback } from "react";
-import { Status } from "@/api/types";
 import { ThoughtCard } from "./ThoughtCard";
 import { ObserverThought } from "../types/workflowRunTypes";
+import { isTaskVariantBlock } from "../types/workflowTypes";
+import { WorkflowRunHumanInteraction } from "./WorkflowRunHumanInteraction";
+
 type Props = {
   activeItem: WorkflowRunOverviewActiveElement;
   block: WorkflowRunBlock;
@@ -85,6 +89,12 @@ function WorkflowRunTimelineBlockItem({
       block.status === Status.TimedOut ||
       block.status === Status.Canceled);
 
+  const duration =
+    block.duration !== null ? formatDuration(toDuration(block.duration)) : null;
+
+  // NOTE(jdo): want to put this back; await for now
+  const showDuration = false as const;
+
   return (
     <div
       className={cn(
@@ -115,7 +125,9 @@ function WorkflowRunTimelineBlockItem({
               <span className="text-sm">
                 {workflowBlockTitle[block.block_type]}
               </span>
-              <span className="text-xs text-slate-400">{block.label}</span>
+              <span className="flex gap-2 text-xs text-slate-400">
+                {block.label}
+              </span>
             </div>
           </div>
           <div className="flex gap-2">
@@ -129,19 +141,29 @@ function WorkflowRunTimelineBlockItem({
                 <CheckCircledIcon className="size-4 text-success" />
               </div>
             )}
-            <div className="flex gap-1 self-start rounded bg-slate-elevation5 px-2 py-1">
-              {showDiagnosticLink ? (
-                <Link to={`/tasks/${block.task_id}/diagnostics`}>
-                  <div className="flex gap-1">
-                    <ExternalLinkIcon className="size-4" />
-                    <span className="text-xs">Diagnostics</span>
-                  </div>
-                </Link>
-              ) : (
-                <>
-                  <CubeIcon className="size-4" />
-                  <span className="text-xs">Block</span>
-                </>
+            <div className="flex flex-col items-end gap-[1px]">
+              <div className="flex gap-1 self-start rounded bg-slate-elevation5 px-2 py-1">
+                {showDiagnosticLink ? (
+                  <Link
+                    to={`/tasks/${block.task_id}/diagnostics`}
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <div className="flex gap-1">
+                      <ExternalLinkIcon className="size-4" />
+                      <span className="text-xs">Diagnostics</span>
+                    </div>
+                  </Link>
+                ) : (
+                  <>
+                    <CubeIcon className="size-4" />
+                    <span className="text-xs">Block</span>
+                  </>
+                )}
+              </div>
+              {duration && showDuration && (
+                <div className="pr-[5px] text-xs text-[#00ecff]">
+                  {duration}
+                </div>
               )}
             </div>
           </div>
@@ -150,6 +172,10 @@ function WorkflowRunTimelineBlockItem({
           <div className="text-xs text-slate-400">{block.description}</div>
         ) : null}
       </div>
+
+      {block.block_type === "human_interaction" && (
+        <WorkflowRunHumanInteraction workflowRunBlock={block} />
+      )}
 
       {actions.map((action, index) => {
         return (

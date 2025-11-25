@@ -17,7 +17,7 @@ export type TaskNodeData = NodeBaseData & {
   parameterKeys: Array<string>;
   totpVerificationUrl: string | null;
   totpIdentifier: string | null;
-  cacheActions: boolean;
+  disableCache: boolean;
   includeActionHistoryInVerification: boolean;
   engine: RunEngine | null;
 };
@@ -43,7 +43,7 @@ export const taskNodeDefaultData: TaskNodeData = {
   totpVerificationUrl: null,
   totpIdentifier: null,
   continueOnFailure: false,
-  cacheActions: false,
+  disableCache: false,
   includeActionHistoryInVerification: false,
   engine: RunEngine.SkyvernV1,
   model: null,

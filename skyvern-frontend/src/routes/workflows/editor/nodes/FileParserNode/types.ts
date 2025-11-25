@@ -1,9 +1,15 @@
 import type { Node } from "@xyflow/react";
 import { NodeBaseData } from "../types";
-import { debuggableWorkflowBlockTypes } from "@/routes/workflows/types/workflowTypes";
+import { AppNode } from "..";
+import {
+  debuggableWorkflowBlockTypes,
+  WorkflowModel,
+} from "@/routes/workflows/types/workflowTypes";
 
 export type FileParserNodeData = NodeBaseData & {
   fileUrl: string;
+  jsonSchema: string;
+  model: WorkflowModel | null;
 };
 
 export type FileParserNode = Node<FileParserNodeData, "fileParser">;
@@ -14,5 +20,10 @@ export const fileParserNodeDefaultData: FileParserNodeData = {
   label: "",
   fileUrl: "",
   continueOnFailure: false,
+  jsonSchema: "null",
   model: null,
 } as const;
+
+export function isFileParserNode(node: AppNode): node is FileParserNode {
+  return node.type === "fileParser";
+}

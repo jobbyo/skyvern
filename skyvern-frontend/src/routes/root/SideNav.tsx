@@ -5,8 +5,10 @@ import { cn } from "@/util/utils";
 import {
   CounterClockwiseClockIcon,
   GearIcon,
+  GlobeIcon,
   LightningBoltIcon,
 } from "@radix-ui/react-icons";
+import { KeyIcon } from "@/components/icons/KeyIcon.tsx";
 
 function SideNav() {
   const { collapsed } = useSidebarStore();
@@ -31,9 +33,14 @@ function SideNav() {
             icon: <LightningBoltIcon className="size-6" />,
           },
           {
-            label: "History",
-            to: "/history",
+            label: "Runs",
+            to: "/runs",
             icon: <CounterClockwiseClockIcon className="size-6" />,
+          },
+          {
+            label: "Browsers",
+            to: "/browser-sessions",
+            icon: <GlobeIcon className="size-6" />,
           },
         ]}
       />
@@ -44,6 +51,11 @@ function SideNav() {
             label: "Settings",
             to: "/settings",
             icon: <GearIcon className="size-6" />,
+          },
+          {
+            label: "Credentials",
+            to: "/credentials",
+            icon: <KeyIcon className="size-6" />,
           },
         ]}
       />

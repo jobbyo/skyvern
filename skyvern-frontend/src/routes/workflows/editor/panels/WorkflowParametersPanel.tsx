@@ -1,6 +1,4 @@
 import { useState } from "react";
-import { useWorkflowParametersState } from "../useWorkflowParametersState";
-import { WorkflowParameterAddPanel } from "./WorkflowParameterAddPanel";
 import { ParametersState } from "../types";
 import { WorkflowParameterEditPanel } from "./WorkflowParameterEditPanel";
 import { MixerVerticalIcon, PlusIcon } from "@radix-ui/react-icons";
@@ -26,6 +24,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useReactFlow } from "@xyflow/react";
 import { useWorkflowHasChangesStore } from "@/store/WorkflowHasChangesStore";
+import { useWorkflowParametersStore } from "@/store/WorkflowParametersStore";
 import { ScrollArea, ScrollAreaViewport } from "@/components/ui/scroll-area";
 import {
   WorkflowEditorParameterType,
@@ -36,12 +35,18 @@ import { getLabelForWorkflowParameterType } from "../workflowEditorUtils";
 const WORKFLOW_EDIT_PANEL_WIDTH = 20 * 16;
 const WORKFLOW_EDIT_PANEL_GAP = 1 * 16;
 
-function WorkflowParametersPanel() {
+interface Props {
+  onMouseDownCapture?: () => void;
+}
+
+function WorkflowParametersPanel({ onMouseDownCapture }: Props) {
   const setHasChanges = useWorkflowHasChangesStore(
     (state) => state.setHasChanges,
   );
-  const [workflowParameters, setWorkflowParameters] =
-    useWorkflowParametersState();
+  const {
+    parameters: workflowParameters,
+    setParameters: setWorkflowParameters,
+  } = useWorkflowParametersStore();
   const [operationPanelState, setOperationPanelState] = useState<{
     active: boolean;
     operation: "add" | "edit";
@@ -56,7 +61,10 @@ function WorkflowParametersPanel() {
   const { setNodes } = useReactFlow();
 
   return (
-    <div className="relative w-[25rem] rounded-xl border border-slate-700 bg-slate-950 p-5 shadow-xl">
+    <div
+      className="relative z-10 w-[25rem] rounded-xl border border-slate-700 bg-slate-950 p-5 shadow-xl"
+      onMouseDownCapture={() => onMouseDownCapture?.()}
+    >
       <div className="space-y-4">
         <header>
           <h1 className="text-lg">Parameters</h1>
@@ -232,8 +240,8 @@ function WorkflowParametersPanel() {
           }}
         >
           {operationPanelState.operation === "add" && (
-            <div className="w-80 rounded-xl border border-slate-700 bg-slate-950 p-5 shadow-xl">
-              <WorkflowParameterAddPanel
+            <div className="w-80 rounded-xl border border-slate-700 bg-slate-950 p-5 px-2 shadow-xl">
+              <WorkflowParameterEditPanel
                 type={operationPanelState.type}
                 onSave={(parameter) => {
                   setWorkflowParameters([...workflowParameters, parameter]);
@@ -256,7 +264,7 @@ function WorkflowParametersPanel() {
           )}
           {operationPanelState.operation === "edit" &&
             operationPanelState.parameter && (
-              <div className="w-80 rounded-xl border border-slate-700 bg-slate-950 p-5 shadow-xl">
+              <div className="w-80 rounded-xl border border-slate-700 bg-slate-950 p-5 px-2 shadow-xl">
                 <WorkflowParameterEditPanel
                   key={operationPanelState.parameter?.key}
                   type={operationPanelState.type}
